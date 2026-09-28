@@ -1,0 +1,19 @@
+node_modules/
+.next/
+out/
+build/
+
+# Secrets. The model key lives here.
+.env
+.env.local
+.env*.local
+
+# Local wiki scratch. Never commit anything that looks like client knowledge.
+.wiki-dev/
+
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+
+# Compiled lib for the check scripts (scripts/compile-lib.mjs)
+.libcheck/
