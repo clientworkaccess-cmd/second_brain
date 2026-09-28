@@ -1,63 +1,168 @@
-# Knowledge Graph — dashboard
+# Brain App
 
-The client-facing dashboard for the LLM Wiki platform. Next.js, single process,
-talks to the Hermes agent across a `spawn` boundary.
+The team's wiki with an agent behind it. Upload a document, read what the agent
+proposes to file, approve it, and the pages are written. Ask a question and get
+an answer with the pages it came from.
 
-Design of record: [`../files/design-handoff-2026-08-11.md`](../files/design-handoff-2026-08-11.md).
-Operational state: [`../context.md`](../context.md). Visual system: [`Desing.md`](Desing.md).
+Next.js, one process. The agent is Claude Code, started as a child process and
+signed in with the team's Claude subscription. There is no API key anywhere.
+
+**Where this stands.** Stage 1 of 3: everything the older dashboard did, on
+Claude Code instead of Hermes. The real wiki's structure (Stage 2) and the
+Second Brain editor and graph (Stage 3) are not in here yet.
+
+Visual system: [`Desing.md`](Desing.md). What the app assumes about the Claude
+binary, and what has been checked: [`docs/claude-contract.md`](docs/claude-contract.md).
 
 ---
 
 ## Run it locally
 
-No Hermes, no API key, no client documents.
+No Claude login, no usage, no real documents.
 
 ```bash
 npm install
 cp .env.example .env.local
+npm run hash-password -- you@example.com
 npm run dev
 ```
 
-`.env.example` already points `HERMES_CMD` at `scripts/fake-hermes.mjs`, a
-stand-in that writes plausible pages and streams plausible progress. The entire
-UI — upload, ingest diff, wiki browsing, chat — works against it.
+`hash-password` asks for a password and prints three lines. Put them in
+`.env.local` in place of the three empty ones. Sign-in stays closed until all
+three are set; there is no built-in login.
 
-**One caveat:** the fake streams line by line. Whether the real `hermes -z` does
-that is unverified (T1a). If it does not, chat will feel materially different in
-production than it does here. Judge the chat experience against the real binary.
+`.env.example` points `CLAUDE_CMD` at `scripts/fake-claude.mjs`, a stand-in that
+speaks the same protocol as the real binary, writes plausible pages and streams
+a plausible answer. The whole UI works against it.
 
-## Run it on the VPS
+## Checks
+
+| Command | What it holds the app to |
+|---|---|
+| `npm run check` | The four below, in order |
+| `npm run check:stream` | The stream parser, against streams captured from the real binary and against the stand-in |
+| `npm run check:auth` | What gets through without a session, what counts as a session, the password, the throttle |
+| `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, and a planner that misbehaves |
+| `npm run check:lint` | The check that runs after every filing |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
+| `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
+| `npm run typecheck` | TypeScript |
+
+`check:auth` also tests a running server when `BASE_URL` is set.
+
+The build itself is checked too. It fails if it would ship any file from
+outside the checkout, which is how a copy of the builder's own Claude folder
+once nearly ended up beside the app.
+
+## The agent
+
+| Task | It may use | It may write |
+|---|---|---|
+| Plan | read, search, write | its plan, in a throwaway copy of the cluster |
+| File | read, search, write, edit | inside the cluster |
+| Answer | read, search | nothing |
+
+In every task it has no shell and no web access, loads no settings from
+anywhere, and is refused `CLAUDE.md`, `AGENTS.md`, `.claude/`, `.mcp.json` and
+`.git/`. The wiki rules it follows are in [`prompts/llm-wiki.md`](prompts/llm-wiki.md).
+
+After every filing the app checks what was written, flags anything that should
+not be there, and commits the cluster so there is a restore point.
+
+---
+
+## First deploy, by hand
+
+Nothing here has been run on the VPS yet. Do it by hand once, in this order,
+and only then turn the workflow on.
+
+The older dashboard on port 3002 is not touched by any of this. Look at it
+before and after.
+
+**1. A user and its folders**
 
 ```bash
-git clone <repo> /opt/dashboard && cd /opt/dashboard && npm ci && npm run build
+sudo useradd --create-home --shell /bin/bash brain
+sudo install -d -o brain -g brain -m 750 /var/brain-data /var/lib/brain-app /var/lib/brain-app/claude /var/lib/brain-app/home
 ```
 
-Then set the two lines that differ:
+**2. The app, owned by root**
 
 ```bash
-WIKI_ROOT=/var/llm_wiki
-HERMES_CMD=/usr/local/bin/hermes
-HERMES_ARGS=
+sudo git clone <repo> /opt/brain-app
+cd /opt/brain-app && sudo npm ci --include=dev
+sudo install -d -o brain -g brain /opt/brain-app/.libcheck
 ```
 
-Copy `deploy/dashboard.service` to `/etc/systemd/system/` and
-`deploy/traefik-dynamic.yml` into your Traefik file-provider directory, then
-`systemctl enable --now dashboard`.
+**3. Claude Code for that user, at the version that was tested**
+
+```bash
+sudo -u brain -H bash -c 'curl -fsSL https://claude.ai/install.sh | bash -s 2.1.247'
+```
+
+**4. Sign in, once**
+
+```bash
+sudo -u brain env HOME=/var/lib/brain-app/home CLAUDE_CONFIG_DIR=/var/lib/brain-app/claude /home/brain/.local/bin/claude
+```
+
+Type `/login`, open the link it prints in a browser, finish there, then `/exit`.
+
+**5. The env file**
+
+```bash
+sudo cp /opt/brain-app/.env.example /opt/brain-app/.env
+sudo npm --prefix /opt/brain-app run hash-password -- you@example.com
+sudoedit /opt/brain-app/.env
+sudo chown root:root /opt/brain-app/.env && sudo chmod 600 /opt/brain-app/.env
+```
+
+In `.env`, besides the three sign-in lines:
+
+```bash
+WIKI_ROOT=/var/brain-data
+CLAUDE_CMD=/home/brain/.local/bin/claude
+CLAUDE_ARGS=
+CLAUDE_CONFIG_DIR=/var/lib/brain-app/claude
+```
+
+**6. Ask the real binary, as the real user**
+
+```bash
+cd /opt/brain-app
+sudo -u brain env HOME=/var/lib/brain-app/home CLAUDE_CONFIG_DIR=/var/lib/brain-app/claude \
+  CLAUDE_CMD=/home/brain/.local/bin/claude npm run check:real
+```
+
+This is the step that matters most. It shows that the agent is refused what it
+should be refused, on this machine, as this user. Do not go on if it fails.
+
+**7. The service and the route**
+
+```bash
+sudo cp /opt/brain-app/deploy/brain-app.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable brain-app
+sudo /opt/brain-app/deploy/deploy.sh
+```
+
+Put the domain in `deploy/traefik-dynamic.yml` and copy it into Traefik's
+file-provider directory.
 
 ## Updating
 
 ```bash
-ssh root@vps '/opt/dashboard/deploy/deploy.sh'
+ssh <admin>@vps 'sudo /opt/brain-app/deploy/deploy.sh'
 ```
 
-Pushing to `main` runs that same script over SSH via
-`.github/workflows/deploy.yml`. Three repo secrets are required: `SSH_HOST`,
-`SSH_USER`, `SSH_KEY` (the private half of a keypair whose public half is in the
-VPS user's `authorized_keys`).
+`.github/workflows/deploy.yml` runs that same script over SSH. It is set to run
+only when started by hand. After the first deploy has worked, add the `push`
+trigger that is written out in the file. It needs four repository secrets:
+`SSH_HOST`, `SSH_USER`, `SSH_KEY` and `SSH_KNOWN_HOSTS`.
 
-Run the script by hand once before relying on the workflow. A pipeline whose
-commands have never succeeded manually is impossible to debug — you cannot tell
-the workflow apart from the SSH apart from the build.
+## When Claude is signed out
+
+The app says so, in the upload card and in the chat, in place of a generic
+failure. Repeat step 4, then upload the document again.
 
 ---
 
@@ -66,62 +171,54 @@ the workflow apart from the SSH apart from the build.
 ```
 Browser
   │  HTTPS
-Traefik :443          TLS, one shared password, no buffering middleware
+Traefik :443          TLS, no buffering middleware
   │  HTTP (loopback)
-Next.js :3002         single process — see below
-                      (3002 not 3000: another app owns 3000 on this box)
-  │  spawn(), stdout pipe — not a network call
-hermes                env: WIKI_PATH=/var/llm_wiki/<cluster>
+Next.js :3003         one process, user `brain`, sign-in of its own
+  │  spawn(), task on stdin, events on stdout
+claude                working directory: /var/brain-data/<cluster>
   │  filesystem
-/var/llm_wiki/<cluster>/
+/var/brain-data/<cluster>/
 ```
 
-**Who writes what.** This app creates the cluster directory, `SCHEMA.md`,
-per-cluster `git init`, and everything under `.dashboard/`. The agent creates
-everything else — `index.md`, `log.md`, `raw/`, and every page. The dashboard
-never writes a wiki page; doing so would be rebuilding the skill.
+**Who writes what.** The app creates the cluster directory, `SCHEMA.md`, the
+empty `index.md` and `log.md`, a git repository per cluster, and everything
+under `.dashboard/`. The agent writes every page and keeps `index.md` and
+`log.md` current. The app never writes a wiki page.
 
-**Isolation is structural.** The agent is handed a `WIKI_PATH` it cannot reach
-outside of. There is no `cd`, and no cluster manifest — a cluster *is* a
-directory containing an `index.md`, so listing is a `readdir` and a filter.
+**Transports.** JSON for anything that finishes in milliseconds. Server-sent
+events for filing progress and chat.
 
-**Transports.** JSON for anything that finishes in milliseconds. SSE for ingest
-progress and chat, because both are one-way server→client and SSE inherits TLS,
-auth, proxy config and reconnect from plain HTTP.
-
-**Ingest outlives its request.** `POST /api/upload` returns a job id as soon as
-the file is on disk. A refresh, a navigation, or a proxy timeout cannot kill a
-write that runs for minutes. The browser reattaches over SSE.
-
----
+**Filing outlives its request.** `POST /api/upload` returns a job id as soon as
+the file is on disk. A refresh, a navigation or a proxy timeout cannot stop a
+write that runs for minutes. The browser reattaches.
 
 ## Two constraints that break quietly if violated
 
-**Run exactly one process.** The per-cluster busy lock lives in memory. A second
-instance, a load balancer, or any clustering means two ingests can both rewrite
-`index.md` and one silently loses. No Vercel, no serverless, no forking process
-manager.
+**Run exactly one process.** The per-cluster busy lock and the sign-in throttle
+live in memory. A second instance, a load balancer or any clustering means two
+filings can both rewrite `index.md` and one silently loses. No serverless, no
+forking process manager.
 
-**Never put Traefik's `buffering` middleware on these routes.** Traefik streams
-by default and flushes recognised streaming responses immediately, so SSE needs
-no special configuration — but `buffering` reads the whole response first, which
-turns chat and ingest progress into one clump at the end. That is
-indistinguishable from the agent not streaming and will send you debugging
-Hermes instead of the proxy. Same applies to a global `compress` middleware
-unless it excludes `text/event-stream`.
+**Never put Traefik's `buffering` middleware on these routes.** It reads the
+whole response first, which turns chat and filing progress into one clump at
+the end. That looks exactly like the agent not streaming. The same goes for a
+global `compress` middleware unless it excludes `text/event-stream`.
 
----
+## Known limits
 
-## Not built yet
-
-- **Egress firewall / unprivileged user** (T0). Deferred by decision on
-  2026-08-12; the gate is the first real client document, not the first run.
-- **Containerised ingest** (T8). `--yolo` gives an agent unrestricted shell over
-  documents we did not write. Uploaded files are untrusted input regardless of
-  who uploaded them.
-- **Post-ingest lint** (T8) — did `index.md` update, did `log.md` get its entry,
-  are there orphan pages. Skill invocation is natural-language triggered and
-  therefore probabilistic; this pass is not optional.
-- **Nightly git commit cron** (T9).
-- **Any user model.** One shared password at Caddy. "Sales can't see the HR
-  cluster" is unbuilt work.
+- **The subscription login.** Anthropic describes that sign-in as meant for an
+  individual's ordinary use and does not allow routing other people's requests
+  through it. One shared login on a server is the owner's decision, taken
+  knowingly for a small in-house team. Look at it again before more people use
+  the app. See <https://code.claude.com/docs/en/legal-and-compliance>.
+- **One shared login.** Everyone who signs in sees every cluster.
+- **What the agent can read.** It is refused Claude's own folder, the app's env
+  files and `/proc`. Whether the binary refuses other files outside the wiki
+  has not been checked yet, so what the `brain` user is allowed to open is the
+  limit to rely on. Keep that user away from anything that matters.
+- **Documents are untrusted.** A document can contain text aimed at the agent.
+  It has no shell and no network, plans in a throwaway copy, and every filing
+  is checked and committed. That limits the damage to the cluster it was filed
+  into, where git can undo it.
+- **No egress firewall.** The agent has no tool that reaches the network, and
+  the box does not enforce that from outside.
