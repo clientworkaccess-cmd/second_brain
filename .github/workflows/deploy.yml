@@ -1,0 +1,36 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # so you can redeploy without an empty commit
+
+# Two pushes in quick succession must not build on the box at the same time —
+# the second would restart the service mid-build of the first.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        # The build happens on the VPS, not here. It keeps the pipeline to one
+        # step and means CI never needs the production env file. The cost is
+        # build load on the same box that serves the app — acceptable while
+        # this is one small client, worth revisiting if builds get slow.
+        #
+        # Password auth, by decision 2026-08-24. Two costs to be aware of:
+        # a leaked SSH_PASSWORD is full root on a box that also runs other
+        # clients' apps (a key can be pinned to one command; a password cannot),
+        # and StrictHostKeyChecking=no means no host verification. Switching to
+        # a restricted deploy key is a ~3-command change on the VPS if this ever
+        # stops being a throwaway test setup.
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
+          sshpass -p "${{ secrets.SSH_PASSWORD }}" \
+            ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
+                'bash -lc "bash /opt/dashboard/deploy/deploy.sh"'
