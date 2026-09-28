@@ -50,5 +50,5 @@ function redirectTo(request: NextRequest, location: string): NextResponse {
 export const config = {
   // Everything except Next's own hashed build output, which gate.ts would let
   // through anyway. Listed here only to skip the cookie check on asset requests.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/static|favicon.ico).*)'],
 };

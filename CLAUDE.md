@@ -46,6 +46,9 @@ runs, which loads no settings or instruction files from anywhere.
 - **Paths from env files are resolved against the checkout** (`APP_DIR`), not
   the working directory. The production server changes into `.next/standalone`
   before any of our code runs.
+- **Only the login, the favicon and `/_next/static/` are public.** The image
+  optimizer is off (`images.unoptimized`) and behind the login; the app has no
+  images.
 - **Never commit real documents or a filled-in env file.**
 
 ## Where things are

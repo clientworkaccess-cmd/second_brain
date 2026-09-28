@@ -185,6 +185,10 @@ empty `index.md` and `log.md`, a git repository per cluster, and everything
 under `.dashboard/`. The agent writes every page and keeps `index.md` and
 `log.md` current. The app never writes a wiki page.
 
+**What is reachable without signing in.** The login page, its endpoint, the
+favicon and the hashed build output under `/_next/static/`. Nothing else. The
+image optimizer is switched off and behind the login as well.
+
 **Transports.** JSON for anything that finishes in milliseconds. Server-sent
 events for filing progress and chat.
 
@@ -220,5 +224,10 @@ global `compress` middleware unless it excludes `text/event-stream`.
   It has no shell and no network, plans in a throwaway copy, and every filing
   is checked and committed. That limits the damage to the cluster it was filed
   into, where git can undo it.
+- **Dependencies.** `npm audit --omit=dev` reports one advisory that is left
+  open: the copy of PostCSS inside Next 15, which has no fix short of Next 16.
+  It concerns CSS from an untrusted source, and the only CSS that goes through
+  it is the app's own, at build time. Move to Next 16 when there is time to
+  test it.
 - **No egress firewall.** The agent has no tool that reaches the network, and
   the box does not enforce that from outside.

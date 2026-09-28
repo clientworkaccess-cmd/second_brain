@@ -48,6 +48,11 @@ if [ ! -d node_modules/typescript ]; then
 	exit 1
 fi
 
+echo "==> Advisories"
+# Printed, not enforced. A new advisory should be read by a person, and should
+# not be what stops a fix from going out.
+npm audit --omit=dev --audit-level=high || echo "!! Read the advisories above before relying on this deploy."
+
 echo "==> Checking"
 # Before the build, not after. The build replaces the files the running server
 # hands out, so anything that can stop the deploy has to stop it before that.

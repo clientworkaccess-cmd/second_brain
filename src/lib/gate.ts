@@ -10,8 +10,15 @@ export type Gate = 'allow' | 'to-login' | 'to-home' | 'unauthorized';
 
 const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/favicon.ico']);
 
-/** Next's own build output. Hashed file names, no user data. */
-const PUBLIC_PREFIXES = ['/_next/static/', '/_next/image'];
+/**
+ * Next's own build output. Hashed file names, no user data.
+ *
+ * Not `/_next/image`. The app shows no images, so nothing needs the image
+ * optimizer, and it is code that fetches and decodes whatever it is pointed at.
+ * It is switched off in next.config.mjs and sits behind the login like
+ * everything else.
+ */
+const PUBLIC_PREFIXES = ['/_next/static/'];
 
 export function isPublicPath(pathname: string): boolean {
   if (PUBLIC_EXACT.has(pathname)) return true;

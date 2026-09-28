@@ -186,6 +186,16 @@ try {
   const unsigned = await get('/api/clusters', { cookie: `brain_session=abc.${Math.floor(Date.now() / 1000) + 3600}.abc` });
   check('a cookie with a made-up signature is refused', unsigned.status === 401, String(unsigned.status));
 
+  // The image optimizer fetches and decodes what it is pointed at. The app has
+  // no use for it, so it is behind the login and switched off as well.
+  const IMAGE = '/_next/image?url=%2Ffavicon.ico&w=64&q=75';
+  const imageOutside = await get(IMAGE);
+  check('the image optimizer is not open to the outside', imageOutside.status === 307 && (imageOutside.headers.get('location') ?? '').includes('/login'), `${imageOutside.status} ${imageOutside.headers.get('location') ?? ''}`);
+  const assets = await get('/_next/static/nothing-by-this-name.js');
+  check('build output needs no session', assets.status === 404, String(assets.status));
+  const powered = (await get('/login')).headers.get('x-powered-by');
+  check('the server does not announce what it is built with', powered === null, String(powered));
+
   // ------------------------------------------------------------- sign-in
   const wrong = await signIn(base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.1' });
   check('a wrong password is refused', wrong.res.status === 401 && !wrong.set, String(wrong.res.status));
@@ -204,6 +214,8 @@ try {
   check('a session opens the pages', home.status === 200, String(home.status));
   const loginAgain = await get('/login', { cookie });
   check('a signed-in visitor is sent away from the login page', [302, 307, 308].includes(loginAgain.status), String(loginAgain.status));
+  const imageInside = await get(IMAGE, { cookie });
+  check('the image optimizer is switched off, session or not', imageInside.status === 404, String(imageInside.status));
 
   // ------------------------------------------------- one document, end to end
   const created = await fetch(`${base}/api/clusters`, withCookie(json({ name: 'operations', scope: 'Returns and refunds' }), cookie));

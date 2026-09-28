@@ -48,6 +48,8 @@ const PROTECTED = [
   '/api/clusters.json', '/api/x.json', '/c/a.b', '/c/ops/entities/page.md', '/new.html', '/.env', '/api/auth/login.php',
   // Near misses of the public paths.
   '/login/', '/login/extra', '/LOGIN', '/api/auth/login/', '/_next', '/_next/data/x.json', '/_nextstatic/x.js', '/favicon.ico/x',
+  // The image optimizer. Nothing in the app uses it, so nothing needs it open.
+  '/_next/image', '/_next/image/',
 ];
 const leaks = PROTECTED.filter((p) => gate(p, false) === 'allow');
 check('nothing protected gets through without a session', leaks.length === 0, leaks.length ? `open: ${leaks.join(', ')}` : `${PROTECTED.length} paths`);
