@@ -3,13 +3,18 @@ node_modules/
 out/
 build/
 
-# Secrets. The model key lives here.
+# Secrets: the sign-in hash and the session secret live here.
 .env
-.env.local
-.env*.local
+.env.*
+!.env.example
 
-# Local wiki scratch. Never commit anything that looks like client knowledge.
+# Local wiki scratch. Never commit anything that looks like real knowledge.
 .wiki-dev/
+.wiki-live-*/
+
+# Claude Code's own state, if someone points CLAUDE_CONFIG_DIR inside the repo.
+.claude-config/
+.claude/settings.local.json
 
 *.tsbuildinfo
 next-env.d.ts

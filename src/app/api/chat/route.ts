@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { HttpError, assertClusterName, clusterPath } from '@/lib/config';
+import { CHAT_TIMEOUT_MS, HttpError, assertClusterName, clusterPath } from '@/lib/config';
 import { exists } from '@/lib/clusters';
-import { runHermes } from '@/lib/hermes';
+import { chatPrompt } from '@/lib/chat';
+import { agentFailure, runClaude } from '@/lib/claude';
 import { sseResponse } from '@/lib/sse';
 
 export const dynamic = 'force-dynamic';
@@ -11,12 +12,11 @@ export const runtime = 'nodejs';
  * Chat, scoped to exactly one cluster.
  *
  * Reads do not take the busy lock — they are non-destructive and run
- * concurrently. Only ingest serializes.
+ * concurrently. Only ingest serializes. The chat profile in lib/claude.ts gives
+ * the agent reading tools and nothing else, so a question cannot change the
+ * wiki however it is phrased.
  *
- * Whether the answer actually arrives incrementally depends on whether
- * `hermes -z` emits anything mid-run, which is unverified (T1a). The client
- * handles both: tokens as they land, or one block at the end. If it turns out
- * not to stream, this endpoint keeps working and only the feel changes.
+ * Each question stands alone: nothing of the previous answer is sent along.
  */
 export async function POST(req: NextRequest) {
   let cluster: string;
@@ -34,28 +34,33 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   }
 
-  const prompt = [
-    `Answer this question using only the wiki in your working directory: "${question}"`,
-    ``,
-    `Start from index.md and follow [[wikilinks]] to the pages that matter. Do not guess —`,
-    `if the wiki does not cover it, say so plainly.`,
-    ``,
-    `End your answer with a line of the form:`,
-    `SOURCES: [[Page Name]], [[Other Page]]`,
-  ].join('\n');
-
-  const run = runHermes({
-    prompt,
-    clusterPath: clusterPath(cluster),
-    timeoutMs: 5 * 60 * 1000,
+  const run = runClaude({
+    mode: 'chat',
+    prompt: chatPrompt(question),
+    cwd: clusterPath(cluster),
+    timeoutMs: CHAT_TIMEOUT_MS,
   });
 
   return sseResponse(({ send, close }) => {
     (async () => {
       try {
-        for await (const line of run.lines) send('token', { text: line + '\n' });
-        await run.done;
-        send('end', {});
+        // What the agent is doing and what it is saying arrive separately, and
+        // both have to be read for the run to finish.
+        const activity = (async () => {
+          for await (const line of run.lines) send('activity', { text: line });
+        })();
+        for await (const text of run.tokens) send('token', { text });
+        await activity;
+
+        const result = await run.done;
+        if (result.ok) {
+          // What was streamed includes anything the agent said before it had
+          // read what it needed. This is the answer it settled on.
+          if (result.text.trim()) send('final', { text: result.text });
+          send('end', {});
+        } else {
+          send('error', { message: agentFailure(result, run.stderrTail()) });
+        }
       } catch (err) {
         send('error', { message: err instanceof Error ? err.message : 'The agent failed' });
       } finally {
@@ -63,7 +68,7 @@ export async function POST(req: NextRequest) {
       }
     })();
 
-    // If the reader goes away, stop paying for the answer.
+    // If the reader goes away, stop the run.
     return () => run.kill();
   });
 }

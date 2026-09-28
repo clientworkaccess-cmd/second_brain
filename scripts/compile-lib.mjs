@@ -22,10 +22,17 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const OUT_DIR = path.join(root, '.libcheck');
 
-const MODULES = ['config', 'clusters', 'wiki', 'lint', 'plans', 'sandbox', 'git', 'hermes', 'jobs'];
+const MODULES = [
+  'env-auth', 'session', 'gate', 'auth', 'config', 'clusters', 'wiki', 'lint', 'plans', 'sandbox', 'git', 'claude-stream', 'claude', 'chat', 'jobs',
+];
 
 export async function compileLib() {
-  await fs.rm(OUT_DIR, { recursive: true, force: true });
+  // Emptied, not removed. On the server the folder is made once for the service
+  // user, who cannot create one beside a checkout that belongs to root.
+  await fs.mkdir(OUT_DIR, { recursive: true });
+  for (const entry of await fs.readdir(OUT_DIR)) {
+    await fs.rm(path.join(OUT_DIR, entry), { recursive: true, force: true });
+  }
 
   // The typescript package's own entry point, run through node. `npx tsc`
   // would need a shell on Windows, where npx is a .cmd — execFileSync refuses
