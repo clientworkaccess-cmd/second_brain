@@ -1,34 +1,35 @@
-# Traefik dynamic configuration for the dashboard.
+# Traefik dynamic configuration for Brain App.
 #
 # Drop this in your file-provider directory (commonly /etc/traefik/dynamic/) and
 # Traefik picks it up without a restart. File provider rather than Docker labels
-# because the dashboard runs as a systemd service on the host, not a container.
+# because the app runs as a systemd service on the host, not a container.
 #
 # Assumes your static config already has:
 #   - a `websecure` entryPoint on :443
 #   - a `letsencrypt` certResolver
 # Rename below to match what you actually call them.
+#
+# Every name here starts with `brain-app`, so this file can sit next to the
+# older dashboard's without either one replacing the other's routers.
 
 http:
   routers:
-    dashboard:
-      rule: "Host(`wiki.example.com`)" # CP5 — real domain still to be decided
+    brain-app:
+      rule: "Host(`brain.example.com`)" # the real domain is still to be decided
       entryPoints:
         - websecure
-      service: dashboard
+      service: brain-app
       middlewares:
-        - dashboard-auth
-        - dashboard-headers
+        - brain-app-headers
       tls:
         certResolver: letsencrypt
 
   services:
-    dashboard:
+    brain-app:
       loadBalancer:
         servers:
           # Next binds loopback only. Traefik is the sole route in from outside.
-          # 3002 — port 3000 belongs to another app on this box.
-          - url: "http://127.0.0.1:3002"
+          - url: "http://127.0.0.1:3003"
 
         responseForwarding:
           # Traefik already flushes recognised streaming responses immediately
@@ -38,18 +39,10 @@ http:
           flushInterval: -1ms
 
   middlewares:
-    # One shared password for everyone. There is no user model in v1 — see
-    # ../../context.md "Known limits".
-    #
-    # Generate the line with:
-    #   htpasswd -nB client
-    # Then double every $ in the hash — Traefik reads $ as a variable otherwise.
-    dashboard-auth:
-      basicAuth:
-        users:
-          - "client:$$2y$$05$$REPLACE_WITH_BCRYPT_HASH"
-
-    dashboard-headers:
+    # No password here. Sign-in is the app's own (AUTH_EMAIL and
+    # AUTH_PASSWORD_HASH in the env file). A second prompt in front of it would
+    # only mean two passwords to share.
+    brain-app-headers:
       headers:
         stsSeconds: 31536000
         frameDeny: true
@@ -57,13 +50,23 @@ http:
         browserXssFilter: true
         referrerPolicy: "same-origin"
 # ---------------------------------------------------------------------------
+# The app trusts X-Forwarded-For and X-Forwarded-Proto
+# ---------------------------------------------------------------------------
+#
+# The sign-in throttle counts wrong guesses per client address, and the session
+# cookie is marked Secure when the request arrived over HTTPS. Both are read
+# from the headers Traefik sets. That is safe because the app listens on
+# loopback only, so nothing but Traefik can set them. If the port is ever
+# opened to the network, those headers become something a caller can invent.
+#
+# ---------------------------------------------------------------------------
 # Two middlewares to NOT put on this router
 # ---------------------------------------------------------------------------
 #
 # `buffering` — it reads the whole response before forwarding, which turns the
 #   ingest progress stream and the chat answer into one clump at the very end.
 #   That looks exactly like "the agent doesn't stream" and will send you
-#   debugging Hermes instead of the proxy. Traefik applies no buffering unless
+#   debugging Claude instead of the proxy. Traefik applies no buffering unless
 #   you ask for it, so the fix is simply not to add it here.
 #
 # `compress` — if you attach it globally, exclude the stream:

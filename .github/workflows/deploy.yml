@@ -1,36 +1,65 @@
 name: Deploy
 
+# Manual only, until the first deploy has been done by hand on the VPS and has
+# worked. A pipeline whose commands have never succeeded manually is impossible
+# to debug. Once it has, add:
+#
+#   push:
+#     branches: [main]
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: # so you can redeploy without an empty commit
+  workflow_dispatch:
 
-# Two pushes in quick succession must not build on the box at the same time —
+# Two runs in quick succession must not build on the box at the same time —
 # the second would restart the service mid-build of the first.
 concurrency:
-  group: deploy-production
+  group: deploy-brain-app
   cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Deploy over SSH
         # The build happens on the VPS, not here. It keeps the pipeline to one
-        # step and means CI never needs the production env file. The cost is
-        # build load on the same box that serves the app — acceptable while
-        # this is one small client, worth revisiting if builds get slow.
+        # step and means CI never needs the production env file.
         #
-        # Password auth, by decision 2026-08-24. Two costs to be aware of:
-        # a leaked SSH_PASSWORD is full root on a box that also runs other
-        # clients' apps (a key can be pinned to one command; a password cannot),
-        # and StrictHostKeyChecking=no means no host verification. Switching to
-        # a restricted deploy key is a ~3-command change on the VPS if this ever
-        # stops being a throwaway test setup.
+        # A key, not a password, and the host's key is pinned. Four secrets:
+        #
+        #   SSH_HOST         the server
+        #   SSH_USER         a user allowed to run the deploy script with sudo
+        #   SSH_KEY          private half of a key made for this and nothing else
+        #   SSH_KNOWN_HOSTS  output of `ssh-keyscan -t ed25519 <host>`, compared
+        #                    with the fingerprint shown on the server itself
+        #
+        # On the server, limit what the key may do. In authorized_keys:
+        #
+        #   command="sudo /opt/brain-app/deploy/deploy.sh",no-port-forwarding,no-agent-forwarding,no-X11-forwarding,no-pty ssh-ed25519 AAAA...
+        #
+        # and in sudoers, for that user, that one script without a password.
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq sshpass
-          sshpass -p "${{ secrets.SSH_PASSWORD }}" \
-            ssh -o StrictHostKeyChecking=no \
-                -o UserKnownHostsFile=/dev/null \
-                "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" \
-                'bash -lc "bash /opt/dashboard/deploy/deploy.sh"'
+          set -euo pipefail
+          for name in SSH_HOST SSH_USER SSH_KEY SSH_KNOWN_HOSTS; do
+            if [ -z "${!name}" ]; then
+              echo "::error::The repository secret $name is not set."
+              exit 1
+            fi
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key \
+              -o IdentitiesOnly=yes \
+              -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+              "$SSH_USER@$SSH_HOST" \
+              'sudo /opt/brain-app/deploy/deploy.sh'
