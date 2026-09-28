@@ -125,7 +125,7 @@ export default function NewCluster() {
                   </Field>
                   {slug && (
                     <p className="mt-2.5 font-mono text-small text-muted/70">
-                      /var/llm_wiki/<span className="text-accent">{slug}</span>
+                      /var/brain-data/<span className="text-accent">{slug}</span>
                     </p>
                   )}
                 </div>

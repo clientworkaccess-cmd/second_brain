@@ -9,7 +9,7 @@ import {
   clusterPath,
 } from './config';
 import { ensureDashboardDirs, readIfPresent } from './clusters';
-import { runHermes } from './hermes';
+import { agentFailure, runClaude } from './claude';
 import { diffAgainst, snapshot, type IngestDiff } from './wiki';
 import { beforeIngest, lintAfterIngest, type LintResult } from './lint';
 import { planningSandbox } from './sandbox';
@@ -63,7 +63,7 @@ export type JobStatus =
   | 'failed'
   | 'interrupted';
 
-/** States with a live Hermes process behind them. */
+/** States with a live agent process behind them. */
 const ACTIVE: JobStatus[] = ['planning', 'executing'];
 
 /** States nothing further will happen to on its own. */
@@ -140,7 +140,7 @@ export function isBusy(cluster: string): string | null {
 }
 
 /**
- * A restart kills any spawned Hermes with it, so a job still marked planning or
+ * A restart kills any spawned agent with it, so a job still marked planning or
  * executing on boot is dead. Mark those so the UI can say "interrupted" instead
  * of streaming a progress bar that will never move.
  *
@@ -350,20 +350,16 @@ async function plan(
 
     sandbox = await planningSandbox(job.cluster, job.stagedPath);
 
-    // Inside the sandbox's cluster directory, which is the agent's WIKI_PATH —
-    // somewhere it can already write, using the tools it already has.
-    //
-    // This was briefly a `--plan-file` command-line flag, by analogy with
-    // --usage-file. That flag does not exist: it is one the dashboard invented,
-    // and the real binary rejected the invocation with exit code 2 before it
-    // read a single document. The prompt names the path instead; nothing has to
-    // be added to Hermes's command line for the agent to write a file.
+    // Inside the sandbox's cluster directory, which is the agent's working
+    // directory — and the one file in it the planner is allowed to write (see
+    // the plan profile in claude.ts). The prompt names the path; nothing is
+    // added to the command line for the agent to write a file.
     const planFile = path.join(sandbox.clusterDir, 'plan.json');
 
-    const run = runHermes({
+    const run = runClaude({
+      mode: 'plan',
       prompt: planPrompt(job, sandbox.sourceRelPath, planFile, revision),
-      clusterPath: sandbox.clusterDir,
-      wikiRoot: sandbox.root,
+      cwd: sandbox.clusterDir,
       timeoutMs: PLAN_TIMEOUT_MS,
     });
 
@@ -372,14 +368,13 @@ async function plan(
       job.lines.push(line);
       emit(job);
     }
-    const code = await run.done;
-    if (code !== 0) throw new Error(hermesFailure(code, run.stderrTail()));
+    const result = await run.done;
+    if (!result.ok) throw new Error(agentFailure(result, run.stderrTail()));
 
-    // The file is the contract; stdout is the fallback. usageFile already
-    // establishes "hand the agent a path and read it back" as how structured
-    // output leaves a run — parsing prose for JSON is the brittle version.
+    // The file is the contract; the agent's closing answer is the fallback.
+    // Parsing prose for JSON is the brittle version.
     const fromFile = await readIfPresent(planFile);
-    const raw = fromFile ?? job.lines.join('\n');
+    const raw = fromFile ?? (result.text || job.lines.join('\n'));
     const parsed = validatePlan({
       ...(extractJson(raw) as Record<string, unknown>),
       jobId: job.id,
@@ -440,9 +435,10 @@ async function execute(job: Job, approved: Plan): Promise<void> {
     job.stagedPath = null;
     const rawPath = `raw/${path.basename(rawFile)}`;
 
-    const run = runHermes({
+    const run = runClaude({
+      mode: 'execute',
       prompt: executePrompt(job, approved, rawPath),
-      clusterPath: clusterPath(job.cluster),
+      cwd: clusterPath(job.cluster),
       usageFile: path.join(JOBS_DIR, `${job.id}.usage.json`),
       timeoutMs: INGEST_TIMEOUT_MS,
     });
@@ -452,8 +448,8 @@ async function execute(job: Job, approved: Plan): Promise<void> {
       job.lines.push(line);
       emit(job);
     }
-    const code = await run.done;
-    if (code !== 0) throw new Error(hermesFailure(code, run.stderrTail()));
+    const result = await run.done;
+    if (!result.ok) throw new Error(agentFailure(result, run.stderrTail()));
 
     job.diff = await diffAgainst(job.cluster, before);
 
@@ -493,10 +489,10 @@ async function execute(job: Job, approved: Plan): Promise<void> {
  * The agent is never asked for a path. plans.ts derives those from the kind and
  * the name after the plan is validated.
  *
- * The llm-wiki skill is named for its orientation and naming rules only, with
- * its ingestion procedure explicitly out of scope — that procedure writes, and
- * "use the skill" is otherwise an open invitation to run it. The sandbox is
- * what actually prevents that; this just avoids inviting it.
+ * The wiki rules (prompts/llm-wiki.md) are given to every run. Here they are
+ * named for orientation and naming only, because a planner that starts filing
+ * pages is doing the other job. The sandbox and the planner's tool profile are
+ * what actually prevent that; this just avoids inviting it.
  */
 function planPrompt(
   job: Job,
@@ -516,8 +512,8 @@ function planPrompt(
     `The document to assess is at: ${sourceRelPath}`,
     ``,
     `This is a reading pass. Do not create, edit or delete any wiki page.`,
-    `Use the llm-wiki skill only for its orientation and naming conventions —`,
-    `do not run its ingestion procedure.`,
+    `Follow the wiki rules in your instructions for orientation and naming only.`,
+    `The one file you write is the plan described below.`,
     ``,
     `Report what you found, in plain business language. Never mention folders,`,
     `filenames or paths — describe things by their name and what they are.`,
@@ -568,8 +564,8 @@ function planPrompt(
 }
 
 /**
- * The execution prompt. Here the skill is invoked in full — this is the pass it
- * was written for — and the approved plan is the specification.
+ * The execution prompt. Here the wiki rules apply in full — this is the pass
+ * they were written for — and the approved plan is the specification.
  */
 function executePrompt(job: Job, approved: Plan, rawPath: string): string {
   const pages = approved.pages.map(
@@ -584,7 +580,7 @@ function executePrompt(job: Job, approved: Plan, rawPath: string): string {
     `TASK: EXECUTE`,
     ``,
     `A human has reviewed and approved the plan below. The source document is at ${rawPath}.`,
-    `Read SCHEMA.md and index.md first, then carry out the plan using the llm-wiki skill.`,
+    `Read SCHEMA.md and index.md first, then carry out the plan, following the wiki rules in your instructions.`,
     ``,
     `Pages:`,
     ...(pages.length ? pages : ['- (none)']),
@@ -602,23 +598,6 @@ function executePrompt(job: Job, approved: Plan, rawPath: string): string {
     `something the plan missed, write the pages that were approved and say what`,
     `you left out at the end of your output.`,
   ].join('\n');
-}
-
-/**
- * Turn a non-zero exit into something a reader can act on.
- *
- * "Hermes exited with code 2" sent someone looking at their document when the
- * actual fault was the dashboard handing the binary a flag it did not have.
- * Exit 2 is the conventional "bad usage" code, so it gets called out by name;
- * whatever the agent printed to stderr is appended either way, because that is
- * where the real reason lives.
- */
-function hermesFailure(code: number, stderr: string): string {
-  const because = stderr ? ` — ${stderr}` : '';
-  if (code === 2) {
-    return `The agent rejected how it was invoked (exit 2). This is usually a bad argument from the dashboard, not a problem with your document.${because}`;
-  }
-  return `The agent stopped with exit code ${code}.${because}`;
 }
 
 /** The basis is bookkeeping; showing it back to the agent is noise in context. */

@@ -11,6 +11,8 @@ interface Turn {
   sources: string[];
   done: boolean;
   error?: string;
+  /** What the agent is doing right now, e.g. "Reading index.md". Shown only while it works. */
+  activity?: string;
 }
 
 /**
@@ -20,9 +22,8 @@ interface Turn {
  * has to go up in a POST body and EventSource is GET-only. The wire format is
  * still SSE, so it inherits the same proxy behaviour.
  *
- * Whether text actually arrives incrementally depends on whether `hermes -z`
- * emits mid-run — unverified. This renders correctly either way: token by
- * token if it streams, one block at the end if it does not.
+ * The answer is rendered as it arrives: piece by piece when the agent streams
+ * it, as one block when it does not.
  */
 export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: boolean }) {
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -79,6 +80,14 @@ export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: bo
           if (event === 'token') {
             const { text: chunk } = JSON.parse(raw) as { text: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: turn.answer + chunk })));
+          } else if (event === 'activity') {
+            const { text: doing } = JSON.parse(raw) as { text: string };
+            setTurns((t) => patchLast(t, (turn) => ({ ...turn, activity: doing })));
+          } else if (event === 'final') {
+            // The answer as the agent settled on it. Anything it said along the
+            // way, before it had read what it needed, is not part of it.
+            const { text: whole } = JSON.parse(raw) as { text: string };
+            if (whole.trim()) setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: whole })));
           } else if (event === 'error') {
             const { message } = JSON.parse(raw) as { message: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, error: message, done: true })));
@@ -141,6 +150,12 @@ export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: bo
               </div>
             )}
 
+            {!turn.done && !turn.error && turn.activity && (
+              <p className="text-caption text-muted" aria-live="polite">
+                {turn.activity}…
+              </p>
+            )}
+
             {turn.sources.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 pt-1">
                 <span className="text-caption text-muted">From</span>
@@ -171,13 +186,7 @@ export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: bo
                 void ask();
               }
             }}
-            placeholder={
-              cluster.toLowerCase() === 'finance'
-                ? 'Ask what the Finance cluster is about...'
-                : cluster.toLowerCase() === 'marketing'
-                ? 'Ask what the Marketing cluster is about...'
-                : 'Ask what the Operations cluster is about...'
-            }
+            placeholder={`Ask something the ${cluster} cluster covers…`}
             className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2.5 text-body text-bright placeholder:text-muted/60 focus:outline-none"
           />
           {busy ? (

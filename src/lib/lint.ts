@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import path from 'node:path';
 import { clusterPath } from './config';
 import { readIfPresent } from './clusters';
 import { PAGE_DIRS, extractWikilinks, listPages, titleIndex, type Snapshot } from './wiki';
@@ -24,7 +25,8 @@ export interface Finding {
     | 'log-not-updated'
     | 'orphan-page'
     | 'broken-link'
-    | 'no-pages-written';
+    | 'no-pages-written'
+    | 'agent-config-file';
   severity: Severity;
   detail: string;
 }
@@ -148,11 +150,51 @@ export async function lintAfterIngest(cluster: string, before: Before): Promise<
     }
   }
 
+  // 6. Nothing that could steer a later run. The agent is refused these writes
+  //    (see the deny rules in claude.ts), and no run loads configuration from
+  //    the wiki. Finding such a file anyway means a rule did not hold.
+  for (const file of await agentConfigFiles(cluster)) {
+    findings.push({
+      code: 'agent-config-file',
+      severity: 'error',
+      detail: `"${file}" is in the wiki. Files of that name can carry instructions into later runs. Remove it and check what wrote it.`,
+    });
+  }
+
   return {
     ok: !findings.some((f) => f.severity === 'error'),
     findings,
     checkedAt: new Date().toISOString(),
   };
+}
+
+const STEERING_FILES = new Set(['claude.md', 'claude.local.md', 'agents.md', '.mcp.json']);
+const STEERING_DIRS = new Set(['.claude']);
+
+/** Files and folders an agent reads as instructions or configuration, anywhere in the cluster. */
+export async function agentConfigFiles(cluster: string): Promise<string[]> {
+  const found: string[] = [];
+  const walk = async (dir: string, rel: string): Promise<void> => {
+    let entries;
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const name = entry.name.toLowerCase();
+      const relPath = rel ? `${rel}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) {
+        if (name === '.git') continue;
+        if (STEERING_DIRS.has(name)) found.push(`${relPath}/`);
+        else await walk(path.join(dir, entry.name), relPath);
+      } else if (STEERING_FILES.has(name)) {
+        found.push(relPath);
+      }
+    }
+  };
+  await walk(clusterPath(cluster), '');
+  return found.sort();
 }
 
 /** Same cheap fingerprint as wiki.ts so "changed" means the bytes changed. */

@@ -32,7 +32,7 @@ type JobStatus =
   | 'failed'
   | 'interrupted';
 
-/** Mirrors isActive() on the server: a Hermes process is running. */
+/** Mirrors isActive() on the server: an agent process is running. */
 const ACTIVE: JobStatus[] = ['planning', 'executing'];
 
 /** Mirrors isFinal(): nothing further happens on its own. */

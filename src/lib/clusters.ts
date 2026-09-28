@@ -103,9 +103,8 @@ export async function createCluster(input: {
   // Two reasons. A cluster *is* a directory containing index.md — that is the
   // readdir filter in listClusters() — so without it a newly created cluster is
   // invisible in the UI, and you cannot upload to something you cannot see.
-  // And the llm-wiki skill's own "Initializing a New Wiki" procedure writes
-  // both files at init; its orientation step then reads them at the start of
-  // every session. Handing the agent an empty scaffold matches what it expects.
+  // And the wiki rules (prompts/llm-wiki.md) have the agent read both files at
+  // the start of every run. Handing it an empty scaffold matches what it expects.
   const today = new Date().toISOString().slice(0, 10);
 
   await fs.writeFile(
@@ -149,7 +148,7 @@ export async function createCluster(input: {
   try {
     await exec('git', ['init'], { cwd: dir });
     await exec('git', ['add', '.'], { cwd: dir });
-    await exec('git', ['-c', 'user.email=dashboard@localhost', '-c', 'user.name=Dashboard', 'commit', '-m', 'Create cluster'], { cwd: dir });
+    await exec('git', ['-c', 'user.email=brain-app@localhost', '-c', 'user.name=Brain App', 'commit', '-m', 'Create cluster'], { cwd: dir });
   } catch (err) {
     console.error(`[clusters] git init failed for ${name} — no ingest rollback available`, err);
   }
@@ -196,7 +195,7 @@ async function countPages(name: string): Promise<number> {
       const files = await fs.readdir(clusterPath(name, sub));
       total += files.filter((f) => f.endsWith('.md')).length;
     } catch {
-      /* the skill may not scaffold every directory — absence is not an error */
+      /* a cluster need not have every directory — absence is not an error */
     }
   }
   return total;

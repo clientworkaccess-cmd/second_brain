@@ -12,8 +12,8 @@ const exec = promisify(execFile);
  * they are never tracked. Git has exactly one job: a restore point for what the
  * agent wrote.
  *
- * That matters because execution is one unattended `--yolo` pass over a
- * document we did not write. If it mangles index.md and six pages, `fs` offers
+ * That matters because execution is one unattended pass over a document we
+ * did not write. If it mangles index.md and six pages, `fs` offers
  * no undo. A commit per executed ingest turns that into `git revert`.
  *
  * Until now the only commit in the codebase was "Create cluster" at init, so a
@@ -22,9 +22,9 @@ const exec = promisify(execFile);
 
 const IDENTITY = [
   '-c',
-  'user.email=dashboard@localhost',
+  'user.email=brain-app@localhost',
   '-c',
-  'user.name=Dashboard',
+  'user.name=Brain App',
 ];
 
 /**

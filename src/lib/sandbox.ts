@@ -8,14 +8,14 @@ import { PAGE_DIRS } from './wiki';
  * A throwaway copy of a cluster, for the planning pass.
  *
  * The planning prompt tells the agent not to write anything. That instruction
- * is worth having and is worth nothing on its own: every spawn carries
- * `--yolo`, which README.md describes as "unrestricted shell over documents we
- * did not write", and the post-ingest check in lint.ts exists precisely because
- * natural-language instructions are followed probabilistically.
+ * is worth having and is worth nothing on its own: the post-ingest check in
+ * lint.ts exists precisely because natural-language instructions are followed
+ * probabilistically. The planner's tool profile (claude.ts) allows it to write
+ * one file, its plan; this copy is the second layer under that rule.
  *
  * So the planner does not get told to keep its hands off the wiki. It gets a
  * copy, and we delete it. If it writes — because the document told it to, or
- * because the skill's ingest procedure fired on its own — it writes into a
+ * because it started filing on its own — it writes into a
  * temporary directory that nothing ever reads.
  *
  * Two placement rules:
@@ -32,9 +32,9 @@ import { PAGE_DIRS } from './wiki';
 const COPIED_FILES = ['SCHEMA.md', 'index.md', 'log.md'];
 
 export interface Sandbox {
-  /** The copied cluster — pass as WIKI_PATH. */
+  /** The copied cluster — the agent's working directory for the planning run. */
   clusterDir: string;
-  /** The copied cluster's parent — pass as WIKI_ROOT. */
+  /** The copied cluster's parent. Removed with everything in it when the run ends. */
   root: string;
   /** Where the staged source was placed, relative to clusterDir. */
   sourceRelPath: string;
