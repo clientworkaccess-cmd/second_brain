@@ -1,0 +1,80 @@
+# Traefik dynamic configuration for the dashboard.
+#
+# Drop this in your file-provider directory (commonly /etc/traefik/dynamic/) and
+# Traefik picks it up without a restart. File provider rather than Docker labels
+# because the dashboard runs as a systemd service on the host, not a container.
+#
+# Assumes your static config already has:
+#   - a `websecure` entryPoint on :443
+#   - a `letsencrypt` certResolver
+# Rename below to match what you actually call them.
+
+http:
+  routers:
+    dashboard:
+      rule: "Host(`wiki.example.com`)" # CP5 — real domain still to be decided
+      entryPoints:
+        - websecure
+      service: dashboard
+      middlewares:
+        - dashboard-auth
+        - dashboard-headers
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    dashboard:
+      loadBalancer:
+        servers:
+          # Next binds loopback only. Traefik is the sole route in from outside.
+          # 3002 — port 3000 belongs to another app on this box.
+          - url: "http://127.0.0.1:3002"
+
+        responseForwarding:
+          # Traefik already flushes recognised streaming responses immediately
+          # and ignores this value for them, so SSE works without any of this.
+          # Set explicitly anyway: it costs nothing and it documents that the
+          # chat and ingest routes depend on not being buffered.
+          flushInterval: -1ms
+
+  middlewares:
+    # One shared password for everyone. There is no user model in v1 — see
+    # ../../context.md "Known limits".
+    #
+    # Generate the line with:
+    #   htpasswd -nB client
+    # Then double every $ in the hash — Traefik reads $ as a variable otherwise.
+    dashboard-auth:
+      basicAuth:
+        users:
+          - "client:$$2y$$05$$REPLACE_WITH_BCRYPT_HASH"
+
+    dashboard-headers:
+      headers:
+        stsSeconds: 31536000
+        frameDeny: true
+        contentTypeNosniff: true
+        browserXssFilter: true
+        referrerPolicy: "same-origin"
+# ---------------------------------------------------------------------------
+# Two middlewares to NOT put on this router
+# ---------------------------------------------------------------------------
+#
+# `buffering` — it reads the whole response before forwarding, which turns the
+#   ingest progress stream and the chat answer into one clump at the very end.
+#   That looks exactly like "the agent doesn't stream" and will send you
+#   debugging Hermes instead of the proxy. Traefik applies no buffering unless
+#   you ask for it, so the fix is simply not to add it here.
+#
+# `compress` — if you attach it globally, exclude the stream:
+#     compress:
+#       excludedContentTypes:
+#         - text/event-stream
+#   Compressing an event stream buys nothing and can hold bytes back waiting to
+#   fill a block.
+#
+# Upload size: Traefik does not cap request bodies by default, so 50MB
+# documents pass through untouched. The only way to introduce a limit is the
+# `buffering` middleware's maxRequestBodyBytes — which is the same middleware
+# that breaks SSE. If you ever need a cap, put it on a separate router scoped
+# to /api/upload only, never on /api/chat or /api/jobs.
