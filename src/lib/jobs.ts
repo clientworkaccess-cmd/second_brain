@@ -11,7 +11,7 @@ import {
 import { ensureDashboardDirs, readIfPresent } from './clusters';
 import { agentFailure, runClaude } from './claude';
 import { diffAgainst, snapshot, type IngestDiff } from './wiki';
-import { beforeIngest, lintAfterIngest, type LintResult } from './lint';
+import { beforeIngest, lintAfterIngest, sourceFingerprints, type LintResult } from './lint';
 import { planningSandbox } from './sandbox';
 import { commitCluster } from './git';
 import {
@@ -434,6 +434,10 @@ async function execute(job: Job, approved: Plan): Promise<void> {
     });
     job.stagedPath = null;
     const rawPath = `raw/${path.basename(rawFile)}`;
+
+    // Taken again now that the document is in place, so that the check
+    // afterwards also notices a change to the document being filed.
+    baseline.sources = await sourceFingerprints(job.cluster);
 
     const run = runClaude({
       mode: 'execute',

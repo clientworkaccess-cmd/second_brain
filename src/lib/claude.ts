@@ -74,6 +74,12 @@ const NEVER = ['Bash', 'WebFetch', 'WebSearch', 'Agent', 'Task', 'NotebookEdit']
 function denyRules(): string[] {
   return [
     ...NEVER,
+    // Read at the start of every run as the rules for the cluster, and written by
+    // the app from what a person said. A run that could edit it would be writing
+    // the rules for the next run.
+    'Edit(/SCHEMA.md)',
+    // Sources are kept as they were given. The app puts them there; the agent reads them.
+    'Edit(/raw/**)',
     'Edit(/CLAUDE.md)',
     'Edit(/**/CLAUDE.md)',
     'Edit(/AGENTS.md)',

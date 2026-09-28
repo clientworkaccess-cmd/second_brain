@@ -77,6 +77,8 @@ Denied in every task:
 | Rule | What it protects |
 |---|---|
 | `Bash`, `WebFetch`, `WebSearch`, `Agent`, `Task`, `NotebookEdit` | No shell, no network, no subagents, even if a later version adds them to a default |
+| `Edit(/SCHEMA.md)` | The rules for the cluster, which every run reads first. Written by the app from what a person said |
+| `Edit(/raw/**)` | Sources stay as they were given. The app puts them there |
 | `Edit(/CLAUDE.md)`, `Edit(/**/CLAUDE.md)`, `Edit(/AGENTS.md)`, `Edit(/**/AGENTS.md)` | A run cannot leave instructions for the next one |
 | `Edit(/.claude/**)`, `Edit(/.mcp.json)` | A run cannot configure the next one |
 | `Edit(/.git/**)` | The restore points stay intact |
@@ -153,7 +155,7 @@ The app turns this into: "Claude is signed out on the server…".
 | The shape of a signed-out run | **Checked**, captured as a fixture |
 | The shape of a run that hit the usage limit | Not checked. Recognised by wording (`usage limit`, `rate_limit`, and similar). The stand-in's version is modelled on the signed-out shape |
 | The shape of ordinary plan, filing and chat runs | Not checked. Needs a login. The parser is written from the documentation |
-| The agent is refused: shell, writing outside the wiki, `CLAUDE.md`, `.claude/`, `.mcp.json` | Not checked. Needs a login |
+| The agent is refused: shell, writing outside the wiki, `CLAUDE.md`, `.claude/`, `.mcp.json`, `SCHEMA.md`, `raw/` | Not checked. Needs a login |
 | Planning can write `plan.json` and nothing else | Not checked. Needs a login |
 | Claude's own folder and the app's env files cannot be read | Not checked. Needs a login |
 | Whether files outside the wiki that no rule names can be read | Not known. Needs a login. Until it is known, assume they can, and rely on what the unix user is allowed to open |
@@ -174,6 +176,25 @@ printed.
 
 Update the table above when that has been run.
 
+## Where the wiki rules come from
+
+`prompts/llm-wiki.md` follows the conventions of the Hermes `llm-wiki` skill,
+version 2.1.0, which the dashboard ran on before: the three layers, orientation
+before any work, what earns a page, the block at the top of every page,
+provenance markers, how disagreement between sources is recorded, and the
+formats of `index.md` and `log.md`.
+
+Left out on purpose:
+
+| The skill | Here |
+|---|---|
+| Fetches sources from the web and saves them under `raw/` | The app receives documents, converts them and puts them in `raw/`. The agent has no web access |
+| Files a good answer back as a page, and logs every question | A question cannot write. The agent says when an answer is worth keeping |
+| Adds new tags to `SCHEMA.md` before using them | The agent cannot change `SCHEMA.md`. It reuses tags and reports a missing one |
+| Runs its own lint with a script | The app checks the disk after every filing |
+| Asks before touching ten or more pages | A person approves the plan before anything is written |
+| Sets up Obsidian sync from a shell | No shell |
+
 ## The local stand-in
 
 `scripts/fake-claude.mjs` speaks the same protocol and is what `npm run dev`
@@ -189,6 +210,8 @@ question only the real binary can answer, which is what `check:real` is for.
 | `--skip index` | leaves `index.md` alone |
 | `--skip log` | leaves `log.md` alone |
 | `--skip sandbox` | writes pages during planning |
+| `--touch schema` | changes `SCHEMA.md` while filing |
+| `--touch source` | changes the source document while filing |
 | `--fail auth` | ends the way the binary does when signed out |
 | `--fail limit` | ends with a usage-limit message |
 

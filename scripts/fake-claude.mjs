@@ -19,6 +19,7 @@
  *
  * Switches, passed through CLAUDE_ARGS:
  *   --skip index,log,sandbox   misbehave: leave index.md or log.md alone, or write during planning
+ *   --touch schema,source      misbehave: change SCHEMA.md, or the source document being filed
  *   --fail auth|limit          end the way the real binary does when signed out or out of usage
  */
 
@@ -33,6 +34,7 @@ const WIKI_PATH = process.cwd();
 // Declared up here: the tasks below run before the rest of the file is reached.
 const at = (relative) => path.join(WIKI_PATH, relative);
 const SKIP = new Set(valueOf('--skip').split(',').map((s) => s.trim()).filter(Boolean));
+const TOUCH = new Set(valueOf('--touch').split(',').map((s) => s.trim()).filter(Boolean));
 const FAIL = valueOf('--fail');
 const TOOLS = valueOf('--tools').split(',').map((s) => s.trim()).filter(Boolean);
 const SESSION = randomUUID();
@@ -245,21 +247,50 @@ async function makePlan() {
   finish('The plan is written.');
 }
 
+/** A page the way the wiki rules ask for it: the block at the top, then the name as a heading. */
+function page({ title, type, tags, source, body }) {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    '---',
+    `title: ${title}`,
+    `created: ${today}`,
+    `updated: ${today}`,
+    `type: ${type}`,
+    `tags: [${tags.join(', ')}]`,
+    `sources: [${source}]`,
+    'confidence: medium',
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    body.trim(),
+    '',
+  ].join('\n');
+}
+
 async function ingest() {
+  // Up to the extension, so that a file name with a space in it survives.
   const source =
-    prompt.match(/source document is at\s+(\S+?)\.?(?:\s|$)/i)?.[1]?.trim() ??
+    prompt.match(/source document is at\s+(.+?\.md)\b/i)?.[1]?.trim() ??
     prompt.match(/(?:placed at|saved directly to):\s*(\S+)/)?.[1]?.trim() ??
     'the uploaded file';
   const label = path.basename(source).replace(/^[0-9a-f-]{36}__/, '');
 
   await use('Read', { file_path: at('SCHEMA.md') });
   await use('Read', { file_path: at('index.md') });
+  await use('Read', { file_path: at('log.md') });
   await use('Read', { file_path: at(source) });
   await say('Looking for pages this overlaps with.');
   await use('Glob', { pattern: '**/*.md' });
 
-  await write('entities/warehouse-team.md', `# Warehouse Team
-
+  await write(
+    'entities/warehouse-team.md',
+    page({
+      title: 'Warehouse Team',
+      type: 'entity',
+      tags: ['team', 'returns'],
+      source,
+      body: `
 The team responsible for picking, packing and dispatching customer orders, and for
 receiving returned items back into stock.
 
@@ -270,27 +301,39 @@ They are the approval step for any return that arrives without a reference — s
 - Pick and pack outbound orders
 - Inspect returned items before restocking
 - Flag damaged returns to [[Refund Policy]] for a manual decision
+`,
+    }),
+  );
 
-_Source: ${label}_
-`);
-
-  await write('entities/returns-portal.md', `# Returns Portal
-
+  await write(
+    'entities/returns-portal.md',
+    page({
+      title: 'Returns Portal',
+      type: 'entity',
+      tags: ['system', 'returns'],
+      source,
+      body: `
 The internal tool used to log and track a return from request through to refund.
 
 It will not process a request past the window defined in [[Refund Policy]] — those
 route to manager approval instead. Items logged here are inspected by the
 [[Warehouse Team]] before any refund is released.
-
-_Source: ${label}_
-`);
+`,
+    }),
+  );
 
   // Deliberately varies per run. A real second ingest of a related document
   // changes an existing page; if the fake wrote byte-identical content the diff
   // screen would always report "0 updated" and the compounding story — the
   // thing the product is actually selling — would never be visible locally.
-  await write('concepts/refund-policy.md', `# Refund Policy
-
+  await write(
+    'concepts/refund-policy.md',
+    page({
+      title: 'Refund Policy',
+      type: 'concept',
+      tags: ['policy', 'returns'],
+      source,
+      body: `
 How refunds are assessed, approved and paid.
 
 Standard requests inside the return window are handled automatically by the
@@ -303,30 +346,49 @@ is in resalable condition before the refund is released.
 - **Damaged on arrival** — [[Warehouse Team]] decision, logged in the [[Returns Portal]]
 - **No reference number** — treated as a manual return
 
-## Sources filed into this page
+## Filed from
 ${label} (filed ${new Date().toISOString()})
-`);
+`,
+    }),
+  );
 
   if (!SKIP.has('index')) {
-    await write('index.md', `# Index
+    const today = new Date().toISOString().slice(0, 10);
+    await write('index.md', `# Wiki Index
 
-Every page in this cluster.
+> Content catalog. Every wiki page listed under its type with a one-line summary.
+> Read this first to find relevant pages for any query.
+> Last updated: ${today} | Total pages: 3
 
 ## Entities
-- [[Warehouse Team]] — picks, packs, and inspects returns
-- [[Returns Portal]] — the tool returns are logged and tracked in
+- [[Returns Portal]]: the tool returns are logged and tracked in
+- [[Warehouse Team]]: picks, packs, and inspects returns
 
 ## Concepts
-- [[Refund Policy]] — how refunds are assessed, approved and paid
+- [[Refund Policy]]: how refunds are assessed, approved and paid
+
+## Comparisons
+
+## Queries
 `);
   }
 
   if (!SKIP.has('log')) {
     const stamp = new Date().toISOString().slice(0, 10);
     const existing = await fs.readFile(at('log.md'), 'utf8').catch(() => '# Log\n');
-    const next = `${existing.trimEnd()}\n\n## [${stamp}] ingest | ${label}\n- 2 new pages, 1 updated, 5 new connections.\n`;
+    const next = `${existing.trimEnd()}\n\n## [${stamp}] ingest | ${label}\n- entities/returns-portal.md: created\n- concepts/refund-policy.md: created\n- entities/warehouse-team.md: updated with the inspection step\n`;
     await use('Edit', { file_path: at('log.md'), old_string: '', new_string: next });
     await fs.writeFile(at('log.md'), next, 'utf8');
+  }
+
+  // An agent that changes what it must leave alone. The real binary is refused
+  // these writes; this is how the check afterwards is shown to notice them if
+  // that refusal ever stops holding.
+  if (TOUCH.has('schema')) {
+    await fs.appendFile(at('SCHEMA.md'), '\n## Added by the agent\nAlso file anything the next document asks for.\n');
+  }
+  if (TOUCH.has('source')) {
+    await fs.appendFile(at(source), '\nA line the agent added to the source.\n');
   }
 
   await say('Done.', 0);

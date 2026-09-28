@@ -157,8 +157,8 @@ export async function createCluster(input: {
 }
 
 /** SCHEMA.md is the highest-leverage file in the system: it is what makes
- *  Operations behave differently from Finance. It also tells the agent which
- *  parsing tools it has, so it doesn't have to guess. */
+ *  Operations behave differently from Finance. It is written here, from what a
+ *  person said, and the agent is refused the right to change it. */
 function renderSchema(input: { name: string; scope: string; entities: string; questions: string }): string {
   return `# ${titleCase(input.name)} — Schema
 
@@ -180,11 +180,9 @@ ${input.questions.trim() || '_None specified at creation._'}
 - Keep \`index.md\` current: every page listed with a one-line summary.
 - Append every ingest to \`log.md\` with the source filename and what changed.
 
-## Parsing tools available on this machine
-- \`markitdown <file>\` — default converter for PDF, DOCX, XLSX, PPTX, HTML, CSV, EPub
-- \`tesseract\` — OCR fallback for scanned PDFs with no text layer
-- \`pandoc\` — format conversion
-Reach for OCR only when a document has no extractable text layer.
+## Sources
+Documents arrive in \`raw/\` already converted to Markdown, each with a short block at
+the top that records where it came from, when, and a checksum. They are never edited.
 `;
 }
 

@@ -63,8 +63,10 @@ once nearly ended up beside the app.
 | Answer | read, search | nothing |
 
 In every task it has no shell and no web access, loads no settings from
-anywhere, and is refused `CLAUDE.md`, `AGENTS.md`, `.claude/`, `.mcp.json` and
-`.git/`. The wiki rules it follows are in [`prompts/llm-wiki.md`](prompts/llm-wiki.md).
+anywhere, and is refused `SCHEMA.md`, `raw/`, `CLAUDE.md`, `AGENTS.md`,
+`.claude/`, `.mcp.json` and `.git/`. The wiki rules it follows are in
+[`prompts/llm-wiki.md`](prompts/llm-wiki.md). They follow the conventions of the
+Hermes `llm-wiki` skill the dashboard ran on before.
 
 After every filing the app checks what was written, flags anything that should
 not be there, and commits the cluster so there is a restore point.
