@@ -19,8 +19,8 @@ runs, which loads no settings or instruction files from anywhere.
   behaviour, and for any walk-through in a browser.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
-- `npm run check` — stream, auth, pipeline, lint and design checks, all against
-  the stand-in. `npm run typecheck` — tsc.
+- `npm run check` — stream, auth, pipeline, lint, page and design checks, all
+  against the stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
 - `npm run check:real` — the app's exact command line against the real binary.
@@ -56,6 +56,9 @@ runs, which loads no settings or instruction files from anywhere.
 - **Only the login, the favicon and `/_next/static/` are public.** The image
   optimizer is off (`images.unoptimized`) and behind the login; the app has no
   images.
+- **The block at the top of a page is read in `src/lib/frontmatter.ts` and
+  nowhere else**, as YAML only. Never call the parser directly: it reads other
+  formats when a block names one, and a page is data.
 - **Never commit real documents or a filled-in env file.**
 
 ## The interface

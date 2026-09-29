@@ -23,7 +23,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const OUT_DIR = path.join(root, '.libcheck');
 
 const MODULES = [
-  'env-auth', 'session', 'gate', 'auth', 'config', 'clusters', 'wiki', 'lint', 'plans', 'sandbox', 'git', 'claude-stream', 'claude', 'chat', 'jobs', 'wikilinks', 'outline', 'search',
+  'env-auth', 'session', 'gate', 'auth', 'config', 'clusters', 'frontmatter', 'wiki', 'lint', 'plans', 'sandbox', 'git', 'claude-stream', 'claude', 'chat', 'jobs', 'wikilinks', 'outline', 'search',
 ];
 
 export async function compileLib() {

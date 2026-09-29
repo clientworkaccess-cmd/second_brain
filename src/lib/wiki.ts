@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import matter from 'gray-matter';
 import { HttpError, clusterPath } from './config';
 import { readIfPresent } from './clusters';
+import { splitPage as splitBlock } from './frontmatter';
 import { WIKILINK, extractWikilinks, linkifyWikilinks } from './wikilinks';
 
 /**
@@ -42,12 +42,8 @@ export interface Backlink {
  * not parse is shown whole, block included, rather than failing to open.
  */
 export function splitPage(raw: string): { content: string; properties: [string, string][] } {
-  try {
-    const { content, data } = matter(raw);
-    return { content, properties: Object.entries(data).map(([name, value]) => [name, show(value)]) };
-  } catch {
-    return { content: raw, properties: [] };
-  }
+  const { content, data } = splitBlock(raw);
+  return { content, properties: Object.entries(data).map(([name, value]) => [name, show(value)]) };
 }
 
 function show(value: unknown): string {

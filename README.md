@@ -51,11 +51,12 @@ npm run build && npm run serve
 
 | Command | What it holds the app to |
 |---|---|
-| `npm run check` | The five below, in order |
+| `npm run check` | The six below, in order |
 | `npm run check:stream` | The stream parser, against streams captured from the real binary and against the stand-in |
 | `npm run check:auth` | What gets through without a session, what counts as a session, the password, the throttle |
 | `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, and a planner that misbehaves |
 | `npm run check:lint` | The check that runs after every filing |
+| `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
 | `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
