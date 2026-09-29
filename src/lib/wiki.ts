@@ -1,8 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import matter from 'gray-matter';
 import { HttpError, clusterPath } from './config';
 import { readIfPresent } from './clusters';
+import { splitPage } from './frontmatter';
 
 /**
  * Read-side of the wiki. The dashboard never writes a page — that is the
@@ -54,7 +54,7 @@ export async function readPage(cluster: string, slug: string): Promise<Page> {
   const raw = await readIfPresent(file);
   if (raw === null) throw new HttpError(404, `No page at ${slug}`);
 
-  const { content } = matter(raw);
+  const { content } = splitPage(raw);
   const stat = await fs.stat(file);
 
   return {
@@ -194,7 +194,7 @@ export async function titleIndex(cluster: string): Promise<Map<string, string>> 
 
 async function pageTitle(cluster: string, slug: string, file: string): Promise<string> {
   const raw = await readIfPresent(clusterPath(cluster, `${slug}.md`));
-  return (raw && headingOf(matter(raw).content)) ?? deSlug(file.replace(/\.md$/, ''));
+  return (raw && headingOf(splitPage(raw).content)) ?? deSlug(file.replace(/\.md$/, ''));
 }
 
 function headingOf(content: string): string | null {
