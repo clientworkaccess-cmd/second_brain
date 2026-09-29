@@ -193,8 +193,12 @@ try {
   check('the image optimizer is not open to the outside', imageOutside.status === 307 && (imageOutside.headers.get('location') ?? '').includes('/login'), `${imageOutside.status} ${imageOutside.headers.get('location') ?? ''}`);
   const assets = await get('/_next/static/nothing-by-this-name.js');
   check('build output needs no session', assets.status === 404, String(assets.status));
-  const powered = (await get('/login')).headers.get('x-powered-by');
-  check('the server does not announce what it is built with', powered === null, String(powered));
+  const login = await get('/login');
+  check('the server does not announce what it is built with', login.headers.get('x-powered-by') === null, String(login.headers.get('x-powered-by')));
+  const loginHtml = await login.text();
+  check('the app calls itself Second Brain', loginHtml.includes('<title>Second Brain</title>') && !/knowledge\s*graph/i.test(loginHtml));
+  const mark = await get('/icon.png');
+  check('the app’s mark needs no session', mark.status === 200 && (mark.headers.get('content-type') ?? '').startsWith('image/png'), `${mark.status} ${mark.headers.get('content-type') ?? ''}`);
 
   // ------------------------------------------------------------- sign-in
   const wrong = await signIn(base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.1' });
@@ -244,7 +248,26 @@ try {
   check('the pages are on disk', (await fs.readdir(path.join(app.wiki, 'operations', 'entities')).catch(() => [])).includes('warehouse-team.md'));
 
   const page = await get('/c/operations/entities/warehouse-team', { cookie });
-  check('a page can be opened', page.status === 200 && (await page.text()).includes('Warehouse Team'), String(page.status));
+  const html = await page.text();
+  check('a page can be opened', page.status === 200 && html.includes('Warehouse Team'), String(page.status));
+  check('the block at the top of the page is shown as properties, not as text', html.includes('Properties') && html.includes('raw/note.md') && !html.includes('title: Warehouse Team'));
+  check('the page lists what links to it', html.includes('Backlinks') && html.includes('/c/operations/entities/returns-portal'));
+  check('the page has an outline that leads to its headings', html.includes('href="#responsibilities"') && html.includes('id="responsibilities"'));
+  check('the frame is there: page tree, tabs, status bar', ['class="sidebar left"', 'class="tabbar"', 'class="statusbar"'].every((part) => html.includes(part)));
+
+  // ------------------------------------------------------------- search
+  const found = await (await get('/api/search?cluster=operations&q=resalable', { cookie })).json();
+  check('search finds a word in a page', found.hits?.length === 1 && found.hits[0].slug === 'concepts/refund-policy', JSON.stringify(found.hits?.map((h) => h.slug)));
+  check('search shows where the word stands', /resalable/i.test(found.hits?.[0]?.snippet ?? ''), found.hits?.[0]?.snippet ?? '');
+  const both = await (await get('/api/search?cluster=operations&q=portal%20WAREHOUSE', { cookie })).json();
+  check('every word has to be there, in any case', both.hits?.length === 3, JSON.stringify(both.hits?.map((h) => h.slug)));
+  check('a match in the title comes first', both.hits?.[0]?.slug === 'entities/returns-portal' || both.hits?.[0]?.slug === 'entities/warehouse-team', both.hits?.[0]?.slug ?? '');
+  const none = await (await get('/api/search?cluster=operations&q=zeppelin', { cookie })).json();
+  check('a word that is nowhere finds nothing', Array.isArray(none.hits) && none.hits.length === 0);
+  const searchAnon = await get('/api/search?cluster=operations&q=portal');
+  check('search needs a session', searchAnon.status === 401, String(searchAnon.status));
+  const climbing = await get('/api/search?cluster=..%2Foperations&q=portal', { cookie });
+  check('search cannot climb out of the wiki', climbing.status === 400, String(climbing.status));
 
   const again = await fetch(`${base}/api/pipeline/execute`, withCookie(json({ jobId }), cookie));
   check('a plan cannot be approved twice', again.status >= 400 && again.status < 500, String(again.status));
