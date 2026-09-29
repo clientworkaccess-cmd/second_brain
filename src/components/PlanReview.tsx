@@ -1,9 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, X, PencilLine, Quote, CornerDownRight, EyeOff } from 'lucide-react';
-import { Button, Card, Badge } from '@/components/ui';
-import { Reveal } from '@/components/Reveal';
+import { Check, X, PencilLine, Quote, CornerDownRight } from 'lucide-react';
+import { Button, Card, Badge, INPUT, SectionTitle } from '@/components/ui';
 
 /**
  * The human gate.
@@ -66,144 +65,136 @@ export function PlanReview({
   const updated = plan.pages.filter((p) => p.existing);
 
   return (
-    <Reveal>
-      <Card className="border-graphite p-6 shadow-subtle">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Badge tone="accent">Proposed — nothing written yet</Badge>
-          {plan.revision > 1 && <span className="text-xs text-muted">plan {plan.revision}</span>}
-        </div>
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="accent">Proposed. Nothing written yet</Badge>
+        {plan.revision > 1 && <span className="text-small text-muted">plan {plan.revision}</span>}
+      </div>
 
-        <h3 className="mt-3.5 text-h2 font-semibold text-bright">
-          What I found in <span className="text-lavender">{plan.filename}</span>
-        </h3>
+      <h3 className="mt-2.5 text-title font-semibold text-ink">
+        What I found in <span className="text-accent">{plan.filename}</span>
+      </h3>
 
-        <p className="mt-2 max-w-prose text-body-sm text-medium">
-          Nothing has been added to the wiki. Check that this matches the document, then decide.
+      <p className="mt-1 max-w-prose text-body text-muted">
+        Nothing has been added to the wiki. Check that this matches the document, then decide.
+      </p>
+
+      {plan.feedback && (
+        <p className="mt-3 flex items-start gap-2 rounded border border-line bg-canvas px-2.5 py-2 text-body text-muted">
+          <CornerDownRight className="mt-0.5 flex-none text-accent" size={15} />
+          <span>
+            Revised after you said: <span className="font-medium text-ink">{plan.feedback}</span>
+          </span>
         </p>
+      )}
 
-        {plan.feedback && (
-          <p className="mt-3 flex items-start gap-2 rounded-lg border border-graphite bg-abyss/60 p-3 text-body-sm text-medium shadow-subtle">
-            <CornerDownRight className="mt-0.5 h-4 w-4 shrink-0 text-lavender" strokeWidth={1.75} />
-            <span>
-              Revised after you said: <span className="text-bright font-medium">{plan.feedback}</span>
-            </span>
-          </p>
-        )}
+      {created.length > 0 && (
+        <Section title="New to the wiki">
+          {created.map((p, i) => (
+            <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
+          ))}
+        </Section>
+      )}
 
-        {created.length > 0 && (
-          <Section title="New to the wiki">
-            {created.map((p, i) => (
-              <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
-            ))}
-          </Section>
-        )}
+      {updated.length > 0 && (
+        <Section title="Already known, and something new about it">
+          {updated.map((p, i) => (
+            <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
+          ))}
+        </Section>
+      )}
 
-        {updated.length > 0 && (
-          <Section title="Already known — learned something new">
-            {updated.map((p, i) => (
-              <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
-            ))}
-          </Section>
-        )}
-
-        {plan.decisions.length > 0 && (
-          <Section title="Decisions made">
-            {plan.decisions.map((d, i) => (
-              <Item
-                key={i}
-                title={d.statement}
-                note={d.by ? `decided by ${d.by}` : null}
-                body={null}
-                quote={d.quote}
-              />
-            ))}
-          </Section>
-        )}
-
-        {plan.links.length > 0 && (
-          <Section title="How these connect">
-            {plan.links.map((l, i) => (
-              <li key={i} className="text-body-sm text-medium">
-                <span className="text-bright font-medium">{l.from}</span> → <span className="text-bright font-medium">{l.to}</span>
-                <span className="text-muted"> — {l.why}</span>
-              </li>
-            ))}
-          </Section>
-        )}
-
-        {plan.skipped.length > 0 && (
-          <Section title="Deliberately left out" icon={<EyeOff className="h-3.5 w-3.5 text-muted" strokeWidth={1.75} />}>
-            {plan.skipped.map((s, i) => (
-              <li key={i} className="text-body-sm text-medium">
-                <span className="text-bright font-medium">{s.what}</span>
-                <span className="text-muted"> — {s.why}</span>
-              </li>
-            ))}
-          </Section>
-        )}
-
-        {error && <p className="mt-4 text-small text-error">{error}</p>}
-
-        {revising ? (
-          <div className="mt-6 space-y-3">
-            <label className="block text-caption font-medium text-medium">
-              What should be different?
-            </label>
-            <textarea
-              rows={3}
-              autoFocus
-              placeholder="e.g. Don't create a page for Stripe — fold it into Payment Gateway."
-              value={feedback}
-              onChange={(e) => setFeedback(e.target.value)}
-              className="w-full rounded-lg border border-graphite bg-abyss/80 p-3 text-body-sm text-bright placeholder:text-muted/60 focus:border-amethyst focus:ring-1 focus:ring-amethyst focus:outline-none shadow-subtle"
+      {plan.decisions.length > 0 && (
+        <Section title="Decisions made">
+          {plan.decisions.map((d, i) => (
+            <Item
+              key={i}
+              title={d.statement}
+              note={d.by ? `decided by ${d.by}` : null}
+              body={null}
+              quote={d.quote}
             />
-            <div className="flex flex-wrap gap-2.5">
-              <Button disabled={!feedback.trim() || busy} onClick={() => onRevise(feedback.trim())}>
-                <PencilLine className="h-4 w-4" strokeWidth={2} />
-                Send it back
-              </Button>
-              <Button variant="ghost" disabled={busy} onClick={() => setRevising(false)}>
-                Cancel
-              </Button>
-            </div>
+          ))}
+        </Section>
+      )}
+
+      {plan.links.length > 0 && (
+        <Section title="How these connect">
+          {plan.links.map((l, i) => (
+            <li key={i} className="text-body text-muted">
+              <span className="font-medium text-ink">{l.from}</span> → <span className="font-medium text-ink">{l.to}</span>
+              <span> · {l.why}</span>
+            </li>
+          ))}
+        </Section>
+      )}
+
+      {plan.skipped.length > 0 && (
+        <Section title="Deliberately left out">
+          {plan.skipped.map((s, i) => (
+            <li key={i} className="text-body text-muted">
+              <span className="font-medium text-ink">{s.what}</span>
+              <span> · {s.why}</span>
+            </li>
+          ))}
+        </Section>
+      )}
+
+      {error && (
+        <p role="alert" className="mt-4 text-ui text-danger">
+          {error}
+        </p>
+      )}
+
+      {revising ? (
+        <div className="mt-5 space-y-2.5">
+          <label className="block text-ui font-medium text-ink" htmlFor="plan-feedback">
+            What should be different?
+          </label>
+          <textarea
+            id="plan-feedback"
+            rows={3}
+            autoFocus
+            placeholder="e.g. Don't create a page for Stripe. Fold it into Payment Gateway."
+            value={feedback}
+            onChange={(e) => setFeedback(e.target.value)}
+            className={INPUT}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={!feedback.trim() || busy} onClick={() => onRevise(feedback.trim())}>
+              <PencilLine size={15} />
+              Send it back
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => setRevising(false)}>
+              Cancel
+            </Button>
           </div>
-        ) : (
-          <div className="mt-6 flex flex-wrap gap-2.5">
-            <Button disabled={busy} onClick={onApprove}>
-              <Check className="h-4 w-4" strokeWidth={2} />
-              Approve &amp; file
-            </Button>
-            <Button variant="ghost" disabled={busy} onClick={() => setRevising(true)}>
-              <PencilLine className="h-4 w-4" strokeWidth={2} />
-              Revise
-            </Button>
-            <Button variant="ghost" disabled={busy} onClick={onReject}>
-              <X className="h-4 w-4" strokeWidth={2} />
-              Discard
-            </Button>
-          </div>
-        )}
-      </Card>
-    </Reveal>
+        </div>
+      ) : (
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button disabled={busy} onClick={onApprove}>
+            <Check size={15} />
+            Approve &amp; file
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={() => setRevising(true)}>
+            <PencilLine size={15} />
+            Revise
+          </Button>
+          <Button variant="ghost" disabled={busy} onClick={onReject}>
+            <X size={15} />
+            Discard
+          </Button>
+        </div>
+      )}
+    </Card>
   );
 }
 
-function Section({
-  title,
-  icon,
-  children,
-}: {
-  title: string;
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="mt-6">
-      <h4 className="flex items-center gap-1.5 text-caption font-semibold uppercase tracking-wide text-muted">
-        {icon}
-        {title}
-      </h4>
-      <ul className="mt-2.5 space-y-2.5">{children}</ul>
+    <div className="mt-5">
+      <SectionTitle>{title}</SectionTitle>
+      <ul className="mt-2 space-y-2">{children}</ul>
     </div>
   );
 }
@@ -224,25 +215,23 @@ function Item({
   return (
     <li>
       <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-body-sm font-medium text-bright">{title}</span>
-        {note && <span className="text-caption text-muted">{note}</span>}
+        <span className="text-body font-medium text-ink">{title}</span>
+        {note && <span className="text-small text-muted">{note}</span>}
         {quote && (
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-expanded={open}
-            className="ml-auto flex items-center gap-1 text-caption text-muted transition-colors hover:text-lavender"
+            className="ml-auto flex items-center gap-1 text-small text-muted hover:text-link"
           >
-            <Quote className="h-3 w-3" strokeWidth={2} />
+            <Quote size={12} />
             {open ? 'hide source' : 'source'}
           </button>
         )}
       </div>
-      {body && <p className="mt-0.5 text-body-sm text-medium">{body}</p>}
+      {body && <p className="text-body text-muted">{body}</p>}
       {open && quote && (
-        <p className="mt-1.5 border-l-2 border-amethyst pl-3 text-body-sm italic text-medium">
-          “{quote}”
-        </p>
+        <p className="mt-1.5 border-l-[3px] border-accent pl-3 text-body text-muted">“{quote}”</p>
       )}
     </li>
   );

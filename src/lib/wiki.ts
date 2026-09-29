@@ -1,8 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import matter from 'gray-matter';
 import { HttpError, clusterPath } from './config';
 import { readIfPresent } from './clusters';
+import { propertiesOf, splitPage as splitBlock } from './frontmatter';
+import { WIKILINK, extractWikilinks, linkifyWikilinks } from './wikilinks';
 
 /**
  * Read-side of the wiki. The dashboard never writes a page — that is the
@@ -23,6 +24,26 @@ export interface Page extends PageRef {
   body: string;
   updatedAt: string;
   links: string[];
+  /** The block at the top of the page, in the order it was written. Empty when there is none. */
+  properties: [name: string, value: string][];
+}
+
+export interface Backlink {
+  slug: string;
+  title: string;
+  /** The line the link sits in, so the reader sees why the page is mentioned. */
+  context: string;
+}
+
+/**
+ * A page split into the block at its top and the text below it.
+ *
+ * The agent writes that block, so it can be malformed. A page whose block does
+ * not parse is shown whole, block included, rather than failing to open.
+ */
+export function splitPage(raw: string): { content: string; properties: [string, string][] } {
+  const { content, data } = splitBlock(raw);
+  return { content, properties: propertiesOf(data) };
 }
 
 /** Every page in a cluster, grouped for the sidebar. */
@@ -54,7 +75,7 @@ export async function readPage(cluster: string, slug: string): Promise<Page> {
   const raw = await readIfPresent(file);
   if (raw === null) throw new HttpError(404, `No page at ${slug}`);
 
-  const { content } = matter(raw);
+  const { content, properties } = splitPage(raw);
   const stat = await fs.stat(file);
 
   return {
@@ -64,7 +85,40 @@ export async function readPage(cluster: string, slug: string): Promise<Page> {
     body: content.trim(),
     updatedAt: stat.mtime.toISOString(),
     links: extractWikilinks(content),
+    properties,
   };
+}
+
+/** Every page that links to this one, with the line the link is in. */
+export async function backlinksOf(cluster: string, slug: string): Promise<Backlink[]> {
+  const titles = await titleIndex(cluster);
+  const grouped = await listPages(cluster);
+  const out: Backlink[] = [];
+
+  for (const dir of PAGE_DIRS) {
+    for (const ref of grouped[dir]) {
+      if (ref.slug === slug) continue;
+      const raw = await readIfPresent(clusterPath(cluster, `${ref.slug}.md`));
+      if (raw === null) continue;
+      const { content } = splitPage(raw);
+
+      const line = content.split('\n').find((candidate) =>
+        extractWikilinks(candidate).some((target) => titles.get(target.toLowerCase()) === slug),
+      );
+      if (line === undefined) continue;
+
+      out.push({
+        slug: ref.slug,
+        title: ref.title,
+        context: line
+          .replace(WIKILINK, (_all, target: string, label?: string) => (label ?? target).trim())
+          .replace(/^[\s>#*-]+/, '')
+          .trim()
+          .slice(0, 240),
+      });
+    }
+  }
+  return out.sort((a, b) => a.title.localeCompare(b.title));
 }
 
 /** index.md is the agent's own catalog — the entry point for both a human
@@ -74,22 +128,37 @@ export async function readIndex(cluster: string): Promise<string | null> {
 }
 
 export interface LogEntry {
-  raw: string;
-  when: string | null;
+  /** YYYY-MM-DD, as written. */
+  when: string;
+  /** ingest, update, query, lint, create, archive or delete. */
+  action: string;
+  subject: string;
+  /** The lines under the entry: what was created or changed. */
+  details: string[];
 }
 
-/** log.md is append-only. We read the tail for the activity feed, and parse the
- *  most recent entry for the ingest diff. */
+/**
+ * The entries of log.md, newest first.
+ *
+ * An entry is a `## [YYYY-MM-DD] action | subject` line and the lines under
+ * it. Everything above the first entry is the file's own explanation of its
+ * format and is left out.
+ */
 export async function readLog(cluster: string, limit = 20): Promise<LogEntry[]> {
   const raw = await readIfPresent(clusterPath(cluster, 'log.md'));
   if (!raw) return [];
-  return raw
-    .split(/\n(?=[-*#]\s|\d{4}-\d{2}-\d{2})/)
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .reverse()
-    .slice(0, limit)
-    .map((entry) => ({ raw: entry, when: entry.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? null }));
+
+  const entries: LogEntry[] = [];
+  for (const line of raw.split('\n')) {
+    const head = line.match(/^#{1,6}\s*\[(\d{4}-\d{2}-\d{2})\]\s*([A-Za-z-]+)\s*\|\s*(.+?)\s*$/);
+    if (head) {
+      entries.push({ when: head[1], action: head[2].toLowerCase(), subject: head[3], details: [] });
+      continue;
+    }
+    const detail = line.replace(/^[\s>*-]+/, '').trim();
+    if (detail && entries.length > 0 && !line.startsWith('#')) entries[entries.length - 1].details.push(detail);
+  }
+  return entries.reverse().slice(0, limit);
 }
 
 export interface IngestDiff {
@@ -145,39 +214,9 @@ function fingerprint(text: string): string {
   return `${text.length}:${sum.toString(36)}`;
 }
 
-const WIKILINK = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g;
-
-/**
- * Deduplicated. A page that mentions [[Warehouse Team]] three times has one
- * connection to it, not three — which is both the honest reading of "new
- * connections" on the diff screen and what stops the links footer rendering
- * duplicate keys.
- */
-export function extractWikilinks(text: string): string[] {
-  const seen = new Map<string, string>();
-  for (const match of text.matchAll(WIKILINK)) {
-    const target = match[1].trim();
-    if (!seen.has(target.toLowerCase())) seen.set(target.toLowerCase(), target);
-  }
-  return [...seen.values()];
-}
-
-/**
- * Turn `[[Warehouse Team]]` into a real markdown link before handing the text
- * to the renderer. Resolution is by title against the pages that exist, so a
- * link the agent invented but never wrote renders as a visible dead link rather
- * than a silent 404 — which is exactly the signal the post-ingest lint wants.
- */
-export function linkifyWikilinks(text: string, cluster: string, known: Map<string, string>): string {
-  return text.replace(WIKILINK, (_all, target: string, label?: string) => {
-    const key = target.trim().toLowerCase();
-    const slug = known.get(key);
-    const text_ = (label ?? target).trim();
-    return slug
-      ? `[${text_}](/c/${cluster}/${slug})`
-      : `[${text_}](/c/${cluster}?missing=${encodeURIComponent(target.trim())})`;
-  });
-}
+// The link syntax itself needs no filesystem, and the chat renders answers in
+// the browser. It lives in wikilinks.ts and is handed on from here.
+export { extractWikilinks, linkifyWikilinks };
 
 /** title → slug, for wikilink resolution. */
 export async function titleIndex(cluster: string): Promise<Map<string, string>> {
@@ -194,7 +233,7 @@ export async function titleIndex(cluster: string): Promise<Map<string, string>> 
 
 async function pageTitle(cluster: string, slug: string, file: string): Promise<string> {
   const raw = await readIfPresent(clusterPath(cluster, `${slug}.md`));
-  return (raw && headingOf(matter(raw).content)) ?? deSlug(file.replace(/\.md$/, ''));
+  return (raw && headingOf(splitPage(raw).content)) ?? deSlug(file.replace(/\.md$/, ''));
 }
 
 function headingOf(content: string): string | null {

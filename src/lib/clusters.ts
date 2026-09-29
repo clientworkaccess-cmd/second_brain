@@ -148,7 +148,7 @@ export async function createCluster(input: {
   try {
     await exec('git', ['init'], { cwd: dir });
     await exec('git', ['add', '.'], { cwd: dir });
-    await exec('git', ['-c', 'user.email=brain-app@localhost', '-c', 'user.name=Brain App', 'commit', '-m', 'Create cluster'], { cwd: dir });
+    await exec('git', ['-c', 'user.email=brain-app@localhost', '-c', 'user.name=Second Brain', 'commit', '-m', 'Create cluster'], { cwd: dir });
   } catch (err) {
     console.error(`[clusters] git init failed for ${name} — no ingest rollback available`, err);
   }

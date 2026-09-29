@@ -2,8 +2,8 @@
 
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Network, Lock, Mail, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
-import { Button, Card, Field, Input } from '@/components/ui';
+import { Mark } from '@/components/Logo';
+import { Button, Field, Input } from '@/components/ui';
 import { returnPath } from '@/lib/gate';
 
 function LoginForm() {
@@ -38,99 +38,62 @@ function LoginForm() {
       router.push(from);
       router.refresh();
     } catch {
-      setError('Connection failed. Please check your network.');
+      setError('Could not reach the server. Check your connection.');
       setLoading(false);
     }
   }
 
   return (
-    <Card className="w-full max-w-md p-8 sm:p-10 shadow-lift border-line bg-elevated/90 backdrop-blur-md">
-      <div className="text-center">
-        <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-accent/10 border border-accent/20 mb-4 text-accent">
-          <Network className="h-6 w-6" strokeWidth={1.75} />
-        </div>
-        <h1 className="text-h1 text-ink">
-          Knowledge <span className="font-serif italic text-accent">Graph</span>
-        </h1>
-        <p className="mt-2 text-small text-muted">
-          Sign in with your authorized credentials to continue
-        </p>
+    <div className="w-full max-w-[340px]">
+      <div className="flex flex-col items-center text-center">
+        <Mark size={52} />
+        <h1 className="mt-4 text-display font-bold text-ink">Second Brain</h1>
+        <p className="mt-1 text-body text-muted">Sign in to continue</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-8 space-y-4">
+      <form onSubmit={handleSubmit} className="mt-6 space-y-3.5 rounded border border-line bg-panel p-5">
         {error && (
-          <div className="flex items-center gap-2.5 rounded border border-danger/30 bg-danger/10 px-3.5 py-2.5 text-small text-danger">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{error}</span>
-          </div>
+          <p role="alert" className="rounded border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-ui text-danger">
+            {error}
+          </p>
         )}
 
         <Field label="Email address">
-          <div className="relative">
-            <Mail className="absolute left-3.5 top-3 h-4 w-4 text-muted/60" />
-            <Input
-              type="email"
-              required
-              autoFocus
-              placeholder="you@example.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+          <Input
+            type="email"
+            required
+            autoFocus
+            autoComplete="username"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </Field>
 
         <Field label="Password">
-          <div className="relative">
-            <Lock className="absolute left-3.5 top-3 h-4 w-4 text-muted/60" />
-            <Input
-              type="password"
-              required
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+          <Input
+            type="password"
+            required
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </Field>
 
-        <div className="pt-2">
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={loading}
-            className="w-full py-3 text-body font-semibold justify-center"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Signing in...
-              </>
-            ) : (
-              <>
-                Sign in
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </Button>
-        </div>
+        <Button type="submit" disabled={loading} className="w-full">
+          {loading ? 'Signing in…' : 'Sign in'}
+        </Button>
       </form>
-    </Card>
+    </div>
   );
 }
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-base px-4 py-12">
-      <Suspense
-        fallback={
-          <div className="text-small text-muted flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading...
-          </div>
-        }
-      >
+    <main className="flex min-h-[100dvh] flex-col items-center justify-center bg-canvas px-4 py-12">
+      <Suspense fallback={<p className="text-ui text-muted">Loading…</p>}>
         <LoginForm />
       </Suspense>
-    </div>
+    </main>
   );
 }

@@ -1,4 +1,4 @@
-# Traefik dynamic configuration for Brain App.
+# Traefik dynamic configuration for Second Brain (the brain-app service).
 #
 # Drop this in your file-provider directory (commonly /etc/traefik/dynamic/) and
 # Traefik picks it up without a restart. File provider rather than Docker labels

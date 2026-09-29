@@ -1,19 +1,26 @@
-# Brain App — working notes for Claude
+# Second Brain (web) — working notes for Claude
 
 Next.js 15 wiki dashboard, one process, that runs Claude Code as a child process
 on a Claude subscription. In-house tool for a small team. Built from the
 team's earlier wiki dashboard, which ran the Hermes agent.
+
+The product is called Second Brain and is the web side of the desktop app of
+that name. The package, the service and the server folders are `brain-app`.
 
 This file is for working on the code. It is not loaded by the agent the app
 runs, which loads no settings or instruction files from anywhere.
 
 ## Commands
 
-- `npm run dev` — dev server on 3000, against the stand-in agent.
+- `npm run dev` — dev server on 3000, against the stand-in agent. It compiles
+  pages on demand; a sign-in can hang on the first visit. That is the dev
+  server, not the app.
+- `npm run serve` — the built app on 3100 with `.env.local`. Use this to judge
+  behaviour, and for any walk-through in a browser.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
-- `npm run check` — stream, auth, pipeline and lint checks, all against the
-  stand-in. `npm run typecheck` — tsc.
+- `npm run check` — stream, auth, pipeline, lint, page and design checks, all
+  against the stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
 - `npm run check:real` — the app's exact command line against the real binary.
@@ -49,7 +56,25 @@ runs, which loads no settings or instruction files from anywhere.
 - **Only the login, the favicon and `/_next/static/` are public.** The image
   optimizer is off (`images.unoptimized`) and behind the login; the app has no
   images.
+- **The block at the top of a page is read in `src/lib/frontmatter.ts` and
+  nowhere else**, as YAML only. Never call the parser directly: it reads other
+  formats when a block names one, and a page is data.
 - **Never commit real documents or a filled-in env file.**
+
+## The interface
+
+Read `DESIGN.md` before touching anything visible. The frame, tree, tabs,
+status bar, reading view and graph chrome in `src/app/globals.css` are the
+desktop app's own CSS with its class names, and the tokens in `src/app/theme.css`
+are its tokens. Keep them in step with the desktop app's
+`src/renderer/src/styles/`. Tailwind's palette is switched off; colours are the
+tokens only. A class name of ours must not be a Tailwind utility (`outline`,
+`inline`, `hidden`): `npm run check:design` looks for that.
+
+A layout renders `<Frame>`. A page renders `<Center>` and, beside it, a
+`<RightSidebar>` if it has one. Which sidebars are open and the theme live as
+attributes on `<html>`, set before the first paint by the script in
+`src/app/layout.tsx`, not in React state.
 
 ## Where things are
 
@@ -72,4 +97,8 @@ the `claude.cmd` wrapper cannot be started without a shell. Line endings are LF
 
 Stage 1 of the plan: parity with the old dashboard on Claude Code. Checked
 against Claude Code 2.1.247 signed out. Everything that needs a login is listed
-as not checked in `docs/claude-contract.md`. Not deployed.
+as not checked in `docs/claude-contract.md`. Deployed by hand on the team's
+server; the deploy workflow is still on manual trigger.
+
+The interface follows the desktop app since the `second-brain-ui` change: same
+tokens, same frame, plus search, backlinks, outline and page properties.

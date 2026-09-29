@@ -24,7 +24,7 @@ const IDENTITY = [
   '-c',
   'user.email=brain-app@localhost',
   '-c',
-  'user.name=Brain App',
+  'user.name=Second Brain',
 ];
 
 /**

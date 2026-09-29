@@ -43,19 +43,22 @@ const check = (name, pass, detail = '') => {
 const PROTECTED = [
   '/', '/new', '/c/ops', '/c/ops/graph', '/c/ops/ask', '/c/ops/entities/warehouse-team',
   '/api/clusters', '/api/upload', '/api/chat', '/api/jobs/abc', '/api/pipeline/plan', '/api/pipeline/execute',
-  '/api/pipeline/reject', '/api/auth/logout',
+  '/api/pipeline/reject', '/api/auth/logout', '/api/search',
   // A dot in a path says nothing about what the path is.
   '/api/clusters.json', '/api/x.json', '/c/a.b', '/c/ops/entities/page.md', '/new.html', '/.env', '/api/auth/login.php',
   // Near misses of the public paths.
   '/login/', '/login/extra', '/LOGIN', '/api/auth/login/', '/_next', '/_next/data/x.json', '/_nextstatic/x.js', '/favicon.ico/x',
   // The image optimizer. Nothing in the app uses it, so nothing needs it open.
   '/_next/image', '/_next/image/',
+  // Near misses of the app's mark, which is public.
+  '/icon.png/', '/icon.png/x', '/icons.png', '/c/icon.png',
 ];
 const leaks = PROTECTED.filter((p) => gate(p, false) === 'allow');
 check('nothing protected gets through without a session', leaks.length === 0, leaks.length ? `open: ${leaks.join(', ')}` : `${PROTECTED.length} paths`);
 check('API routes answer 401, pages go to the login', gate('/api/clusters', false) === 'unauthorized' && gate('/c/ops', false) === 'to-login');
 check('the login page and its endpoint are reachable', gate('/login', false) === 'allow' && gate('/api/auth/login', false) === 'allow');
 check('build output is reachable', isPublicPath('/_next/static/chunks/main.js') && isPublicPath('/favicon.ico'));
+check('the app’s mark is reachable, so the login page can show it', isPublicPath('/icon.png'));
 check('a signed-in visitor is sent away from the login page', gate('/login', true) === 'to-home');
 check('a signed-in visitor gets everything else', PROTECTED.every((p) => gate(p, true) === 'allow'));
 

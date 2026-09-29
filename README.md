@@ -1,6 +1,6 @@
-# Brain App
+# Second Brain
 
-The team's wiki with an agent behind it. Upload a document, read what the agent
+The web side of Second Brain: the team's wiki with an agent behind it. Upload a document, read what the agent
 proposes to file, approve it, and the pages are written. Ask a question and get
 an answer with the pages it came from.
 
@@ -11,8 +11,12 @@ signed in with the team's Claude subscription. There is no API key anywhere.
 Claude Code instead of Hermes. The real wiki's structure (Stage 2) and the
 Second Brain editor and graph (Stage 3) are not in here yet.
 
-Visual system: [`Desing.md`](Desing.md). What the app assumes about the Claude
-binary, and what has been checked: [`docs/claude-contract.md`](docs/claude-contract.md).
+It looks and is laid out like the Second Brain desktop app, on purpose:
+[`DESIGN.md`](DESIGN.md). What the app assumes about the Claude binary, and what
+has been checked: [`docs/claude-contract.md`](docs/claude-contract.md).
+
+The product is called Second Brain. The package, the service and the folders on
+the server keep the name `brain-app`.
 
 ---
 
@@ -35,15 +39,25 @@ three are set; there is no built-in login.
 speaks the same protocol as the real binary, writes plausible pages and streams
 a plausible answer. The whole UI works against it.
 
+`npm run dev` compiles pages as they are asked for, which makes the first visit
+to each one slow and can leave a sign-in hanging. To judge how the app behaves,
+run the build:
+
+```bash
+npm run build && npm run serve
+```
+
 ## Checks
 
 | Command | What it holds the app to |
 |---|---|
-| `npm run check` | The four below, in order |
+| `npm run check` | The six below, in order |
 | `npm run check:stream` | The stream parser, against streams captured from the real binary and against the stand-in |
 | `npm run check:auth` | What gets through without a session, what counts as a session, the password, the throttle |
 | `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, and a planner that misbehaves |
 | `npm run check:lint` | The check that runs after every filing |
+| `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
+| `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
 | `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |

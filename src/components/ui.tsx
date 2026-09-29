@@ -3,8 +3,13 @@ import type { ComponentProps, ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 
 /**
- * The primitive set, straight off Desing.md §Components. Everything else in the
- * app composes these — no one-off button styling further down the tree.
+ * The primitive set. Everything that only this app has (upload, plan review,
+ * chat, the wizard) is built from these, so that it sits beside the frame,
+ * which is the desktop app's own CSS, without looking like a guest.
+ *
+ * The rules they follow are the desktop app's: flat surfaces, one-pixel
+ * borders, a six-pixel radius, 13px text, and the accent only on the one thing
+ * a screen is for.
  */
 
 function cx(...parts: (string | false | null | undefined)[]): string {
@@ -12,17 +17,14 @@ function cx(...parts: (string | false | null | undefined)[]): string {
 }
 
 const BUTTON_BASE =
-  'inline-flex items-center justify-center gap-2 rounded-lg font-medium text-small transition-all duration-150 ' +
-  'disabled:opacity-40 disabled:pointer-events-none active:translate-y-px select-none';
+  'inline-flex items-center justify-center gap-1.5 rounded border px-3 py-1.5 text-ui font-medium select-none ' +
+  'disabled:opacity-45 disabled:pointer-events-none';
 
 const VARIANTS = {
-  // Primary CTA: Solid Amethyst (#7c3aed) with White (#ffffff) text, 8px radius, subtle inset glow
-  primary:
-    'bg-amethyst text-white px-5 py-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)] hover:bg-[#6d28d9] active:bg-[#5b21b6]',
-  // Secondary Ghost Button: Transparent background with Medium Gray (#bcbcbc) text
-  ghost: 'border border-graphite text-medium px-4 py-2.5 hover:text-bright hover:bg-white/[0.04]',
-  quiet: 'text-medium px-3 py-2 hover:text-bright hover:bg-white/[0.04]',
-  danger: 'border border-error/40 text-error px-4 py-2.5 hover:bg-error/10',
+  primary: 'border-transparent bg-accent text-on-accent hover:bg-accent-hover',
+  ghost: 'border-line bg-raised text-ink hover:bg-hover',
+  quiet: 'border-transparent text-muted hover:bg-hover hover:text-ink',
+  danger: 'border-danger/40 text-danger hover:bg-danger/10',
 } as const;
 
 type Variant = keyof typeof VARIANTS;
@@ -44,15 +46,10 @@ export function ButtonLink({
 }
 
 export function Card({ className, ...rest }: ComponentProps<'div'>) {
-  return (
-    <div
-      className={cx('rounded-xl border border-graphite bg-surface shadow-subtle text-bright', className)}
-      {...rest}
-    />
-  );
+  return <div className={cx('rounded border border-line bg-panel text-ink', className)} {...rest} />;
 }
 
-/** Label above the input. No floating labels — the spec rules them out. */
+/** Label above the input. */
 export function Field({
   label,
   hint,
@@ -66,32 +63,32 @@ export function Field({
 }) {
   return (
     <label className="block">
-      <span className="block text-small font-medium text-bright tracking-normal">{label}</span>
-      {hint && <span className="mt-1 block text-small text-muted">{hint}</span>}
-      <div className="mt-2">{children}</div>
-      {error && <span className="mt-1.5 block text-small text-error">{error}</span>}
+      <span className="block text-ui font-medium text-ink">{label}</span>
+      {hint && <span className="mt-0.5 block text-small text-muted">{hint}</span>}
+      <div className="mt-1.5">{children}</div>
+      {error && <span className="mt-1 block text-small text-danger">{error}</span>}
     </label>
   );
 }
 
-const INPUT =
-  'w-full rounded-lg border border-graphite bg-abyss/80 px-3.5 py-2.5 text-body text-bright ' +
-  'placeholder:text-muted/60 transition-colors focus:border-amethyst focus:ring-1 focus:ring-amethyst shadow-subtle';
+export const INPUT =
+  'w-full rounded border border-line bg-canvas px-2.5 py-1.5 text-body text-ink ' +
+  'placeholder:text-faint focus:border-accent focus:outline-none';
 
 export function Input({ className, ...rest }: ComponentProps<'input'>) {
   return <input className={cx(INPUT, className)} {...rest} />;
 }
 
 export function Textarea({ className, ...rest }: ComponentProps<'textarea'>) {
-  return <textarea className={cx(INPUT, 'resize-y min-h-[7rem]', className)} {...rest} />;
+  return <textarea className={cx(INPUT, 'min-h-[7rem] resize-y', className)} {...rest} />;
 }
 
-/** Shimmer, sized to the thing it stands in for. Desing.md forbids circular spinners. */
+/** A line of text that has not arrived yet. */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cx('shimmer rounded-lg bg-surface border border-graphite/40', className)} aria-hidden />;
+  return <div className={cx('animate-pulse rounded-sm bg-raised', className)} aria-hidden />;
 }
 
-/** Icon composition + descriptive text + an action. Never a bare "no data". */
+/** An icon, what is missing, and what to do about it. Never a bare "no data". */
 export function EmptyState({
   icon: Icon,
   title,
@@ -104,13 +101,11 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-graphite bg-surface/30 px-6 py-16 text-center shadow-subtle">
-      <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-graphite bg-surface shadow-subtle">
-        <Icon className="h-5 w-5 text-lavender" strokeWidth={1.75} />
-      </span>
-      <h2 className="text-h2 font-semibold text-bright">{title}</h2>
-      <p className="mt-2 max-w-prose text-body text-medium">{body}</p>
-      {action && <div className="mt-6">{action}</div>}
+    <div className="flex flex-col items-center px-6 py-12 text-center">
+      <Icon className="mb-3 h-6 w-6 text-faint" strokeWidth={1.75} />
+      <h2 className="text-title font-medium text-muted">{title}</h2>
+      <p className="mt-1.5 max-w-prose text-body text-muted">{body}</p>
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }
@@ -123,21 +118,21 @@ export function Badge({
   tone?: 'neutral' | 'success' | 'danger' | 'accent';
 }) {
   const tones = {
-    neutral: 'border-graphite bg-surface text-medium',
-    success: 'border-success/30 bg-success/15 text-success',
-    danger: 'border-error/30 bg-error/15 text-error',
-    accent: 'border-lavender/30 bg-tag-bg text-lavender',
+    neutral: 'bg-raised text-muted',
+    success: 'bg-success/15 text-success',
+    danger: 'bg-danger/15 text-danger',
+    accent: 'bg-raised text-accent',
   } as const;
   return (
-    <span
-      className={cx(
-        'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium tracking-normal',
-        tones[tone],
-      )}
-    >
+    <span className={cx('inline-flex items-center gap-1 rounded-full px-2 text-small leading-[1.6]', tones[tone])}>
       {children}
     </span>
   );
+}
+
+/** The small uppercase line above a group of things, as in the sidebars. */
+export function SectionTitle({ children, className }: { children: ReactNode; className?: string }) {
+  return <h2 className={cx('section-title', className)}>{children}</h2>;
 }
 
 export { cx };

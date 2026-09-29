@@ -81,14 +81,25 @@ function fake(prompt, extraArgs = []) {
 
 {
   const { out, code } = await fake('What is this cluster about?');
+  const result = resultOf(parseStream(out, cluster));
+  check('fake chat, empty wiki: says that nothing is filed, and names no sources', code === 0 && result?.ok === true && /does not cover/i.test(result.text) && !/SOURCES/.test(result.text), result?.text ?? '');
+}
+
+{
+  await fs.writeFile(
+    path.join(cluster, 'index.md'),
+    '# Wiki Index\n\n## Entities\n- [[Warehouse Team]]: picks, packs, and inspects returns\n- [[Returns Portal]] — where a return is logged\n\n## Concepts\n',
+  );
+  const { out, code } = await fake('What is this cluster about?');
   const events = parseStream(out, cluster);
   const streamed = events.filter((e) => e.kind === 'delta').map((e) => e.text).join('');
   const result = resultOf(events);
   check('fake chat: exits cleanly with a result', code === 0 && result?.ok === true, `exit ${code}`);
   check('fake chat: the streamed pieces add up to the answer', streamed.trim() === result?.text, `${streamed.length} characters`);
   check('fake chat: the complete message is marked as already streamed', events.filter((e) => e.kind === 'text').every((e) => e.streamed));
-  check('fake chat: reading is described in words', toolLines(events).includes('Reading index.md'), toolLines(events).join(' | '));
-  check('fake chat: carries a SOURCES line', /^SOURCES: /m.test(result?.text ?? ''));
+  check('fake chat: reading and searching are described in words', toolLines(events).includes('Reading index.md') && toolLines(events).includes('Searching for "Warehouse Team"'), toolLines(events).join(' | '));
+  check('fake chat: the sources are the pages the index lists', /^SOURCES: \[\[Warehouse Team\]\], \[\[Returns Portal\]\]$/m.test(result?.text ?? ''), result?.text.split('\n').pop() ?? '');
+  await fs.writeFile(path.join(cluster, 'index.md'), '# Wiki Index\n');
 }
 
 {
