@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError, clusterPath } from './config';
 import { readIfPresent } from './clusters';
-import { splitPage as splitBlock } from './frontmatter';
+import { propertiesOf, splitPage as splitBlock } from './frontmatter';
 import { WIKILINK, extractWikilinks, linkifyWikilinks } from './wikilinks';
 
 /**
@@ -43,16 +43,7 @@ export interface Backlink {
  */
 export function splitPage(raw: string): { content: string; properties: [string, string][] } {
   const { content, data } = splitBlock(raw);
-  return { content, properties: Object.entries(data).map(([name, value]) => [name, show(value)]) };
-}
-
-function show(value: unknown): string {
-  if (value === null || value === undefined) return '';
-  // YAML reads 2026-09-28 as a date, and a date prints with a time and a zone.
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
-  if (Array.isArray(value)) return value.map(show).join(', ');
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  return { content, properties: propertiesOf(data) };
 }
 
 /** Every page in a cluster, grouped for the sidebar. */
