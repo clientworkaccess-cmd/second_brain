@@ -1,95 +1,81 @@
 import type { Config } from 'tailwindcss';
 
-// Tokens are lifted verbatim from Desing.md (Obsidian — Style Reference: Crystalline Knowledge Vault).
+/**
+ * Colours are not values here, they are the theme variables from
+ * src/app/theme.css, which are the ones the Second Brain desktop app uses.
+ * A class such as `bg-panel` therefore follows light and dark on its own, and
+ * nothing in a component names a colour by what it looks like.
+ *
+ * `<alpha-value>` is what lets `border-accent/40` work with a variable.
+ */
+const token = (name: string): string => `rgb(var(--c-${name}) / <alpha-value>)`;
+
 const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
   theme: {
+    // Replaced, not extended: the default palette is not part of this look.
+    colors: {
+      transparent: 'transparent',
+      current: 'currentColor',
+      canvas: token('bg-primary'), // the page and the centre pane
+      panel: token('bg-secondary'), // sidebars, headers, cards
+      raised: token('bg-tertiary'), // buttons, pills, anything lifted off a panel
+      line: token('border'),
+      ink: token('text-normal'),
+      muted: token('text-muted'),
+      faint: token('text-faint'),
+      accent: token('accent'),
+      'accent-hover': token('accent-hover'),
+      'on-accent': token('text-on-accent'),
+      link: token('link'),
+      danger: token('danger'),
+      success: token('success'),
+      warning: token('warning'),
+      hover: 'var(--bg-hover)',
+      active: 'var(--bg-active)',
+    },
+    fontFamily: {
+      sans: ['var(--font-ui)'],
+      mono: ['var(--font-mono)'],
+    },
+    fontSize: {
+      tiny: ['11px', { lineHeight: '1.4' }],
+      small: ['12px', { lineHeight: '1.45' }],
+      ui: ['13px', { lineHeight: '1.5' }],
+      body: ['14px', { lineHeight: '1.55' }],
+      text: ['16px', { lineHeight: '1.6' }],
+      title: ['18px', { lineHeight: '1.3' }],
+      display: ['24px', { lineHeight: '1.25' }],
+    },
+    borderRadius: {
+      none: '0',
+      sm: '4px',
+      DEFAULT: '6px',
+      lg: '10px',
+      full: '9999px',
+    },
+    boxShadow: {
+      none: 'none',
+      // Only for things that float over the page: menus, dialogs, toasts.
+      float: '0 8px 24px rgba(0, 0, 0, 0.25)',
+    },
     extend: {
-      colors: {
-        // Core Obsidian Palette
-        white: '#ffffff',
-        bright: '#eeeeee',
-        medium: '#bcbcbc',
-        muted: '#a3a3a3',
-        graphite: '#3f3f3f',
-        surface: '#1e1e1e',
-        abyss: '#171717',
-        amethyst: '#7c3aed',
-        lavender: '#a78bfa',
-        'tag-bg': 'rgba(138, 92, 245, 0.15)',
-        success: '#4ade80',
-        warning: '#facc15',
-        error: '#f87171',
-
-        // Semantic mapping to Obsidian theme
-        base: '#171717', // maps to Abyss
-        elevated: '#1e1e1e', // maps to Surface
-        line: '#3f3f3f', // maps to Graphite
-        glass: 'rgba(30, 30, 30, 0.85)',
-        ink: '#eeeeee', // maps to Bright Gray
-        accent: '#7c3aed', // maps to Amethyst
-        danger: '#f87171', // maps to Error Red
-      },
-      fontFamily: {
-        sans: [
-          'ui-sans-serif',
-          'system-ui',
-          '-apple-system',
-          'BlinkMacSystemFont',
-          '"Segoe UI"',
-          'Roboto',
-          'sans-serif',
-        ],
-        mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
-      },
-      fontSize: {
-        caption: ['12px', { lineHeight: '1.5', letterSpacing: '-0.24px' }],
-        'body-sm': ['14px', { lineHeight: '1.5', letterSpacing: '-0.28px' }],
-        small: ['14px', { lineHeight: '1.5', letterSpacing: '-0.28px' }],
-        body: ['16px', { lineHeight: '1.5', letterSpacing: '-0.32px' }],
-        subheading: ['18px', { lineHeight: '1.4', letterSpacing: '-0.36px' }],
-        'heading-sm': ['24px', { lineHeight: '1.33', letterSpacing: '-0.48px' }],
-        h2: ['24px', { lineHeight: '1.33', letterSpacing: '-0.48px' }],
-        heading: ['28px', { lineHeight: '1.25', letterSpacing: '-0.56px' }],
-        h1: ['28px', { lineHeight: '1.25', letterSpacing: '-0.56px' }],
-        'heading-lg': ['36px', { lineHeight: '1.25', letterSpacing: '-0.72px' }],
-        display: ['60px', { lineHeight: '1.1', letterSpacing: '-1.2px' }],
-        hero: ['60px', { lineHeight: '1.1', letterSpacing: '-1.2px' }],
-      },
-      borderRadius: {
-        DEFAULT: '8px',
-        md: '4px',
-        lg: '8px', // inputs, buttons
-        xl: '12px', // cards
-        '2xl': '16px',
-        full: '9999px', // tags, badges
-      },
       maxWidth: {
-        shell: '1120px', // Page max-width: 1120px from Desing.md
+        content: 'var(--content-width)',
         prose: '72ch',
       },
-      boxShadow: {
-        subtle: 'rgba(255, 255, 255, 0.05) 0px 0px 0px 1px inset',
-        'subtle-2': 'rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset',
-        'subtle-3':
-          'rgba(255, 255, 255, 0.1) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.1) 0px 1px 3px 0px',
-        card: 'rgba(255, 255, 255, 0.05) 0px 0px 0px 1px inset',
-        lift: 'rgba(255, 255, 255, 0.08) 0px 0px 0px 1px inset, rgba(0, 0, 0, 0.25) 0px 25px 50px -12px',
-      },
       zIndex: {
-        sticky: '100',
         overlay: '200',
         modal: '300',
-        toast: '500',
       },
       keyframes: {
-        shimmer: {
-          '0%': { backgroundPosition: '-200% 0' },
-          '100%': { backgroundPosition: '200% 0' },
+        pulse: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0.45' },
         },
       },
       animation: {
-        shimmer: 'shimmer 1.6s linear infinite',
+        pulse: 'pulse 1.6s ease-in-out infinite',
       },
     },
   },

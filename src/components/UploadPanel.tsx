@@ -2,17 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  UploadCloud,
-  FileUp,
-  TriangleAlert,
-  RotateCcw,
-  Sparkles,
-  ClipboardPaste,
-  FileText,
-} from 'lucide-react';
-import { Button, Card, Skeleton, Badge } from '@/components/ui';
-import { Reveal } from '@/components/Reveal';
+import { FileUp, TriangleAlert, RotateCcw, FileText, Send } from 'lucide-react';
+import { Button, Card, Skeleton, Badge, INPUT } from '@/components/ui';
 import { PlanReview, type Plan } from '@/components/PlanReview';
 import { parseDocx, parsePdf, parseTxt } from '@/lib/parser';
 
@@ -54,9 +45,12 @@ interface Job {
 type TabMode = 'file' | 'paste';
 
 /**
- * Upload & Paste Panel.
- * Performs client-side pre-parsing (.docx -> mammoth+turndown, .pdf -> pdfjs with OCR guard, .txt/paste -> native text)
- * and submits formatted Markdown directly to /api/upload for saving into raw/.
+ * Adding a document: a file, or pasted text.
+ *
+ * The text is taken out of the file in the browser (.docx through mammoth and
+ * turndown, .pdf through pdfjs, .txt and .md as they are) and sent to
+ * /api/upload as Markdown. What follows is the plan, the decision, and the
+ * filing, each shown in this same place.
  */
 export function UploadPanel({ cluster }: { cluster: string }) {
   const router = useRouter();
@@ -159,7 +153,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
 
   async function handleFileSubmit(file: File) {
     setError(null);
-    setParsingMsg('Extracting document text...');
+    setParsingMsg('Taking the text out of the document');
     setSending(true);
 
     try {
@@ -176,10 +170,10 @@ export function UploadPanel({ cluster }: { cluster: string }) {
       }
 
       if (!extractedText.trim()) {
-        throw new Error('No text could be extracted from this document.');
+        throw new Error('No text could be taken out of this document.');
       }
 
-      setParsingMsg('Sending file to server...');
+      setParsingMsg('Sending it to the server');
 
       const body = new FormData();
       body.append('cluster', cluster);
@@ -203,7 +197,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
       });
       attach(data.jobId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'File parsing/upload failed');
+      setError(err instanceof Error ? err.message : 'The document could not be read or sent');
     } finally {
       setSending(false);
       setParsingMsg(null);
@@ -212,7 +206,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
 
   async function handlePasteSubmit() {
     if (!pasteContent.trim()) {
-      setError('Please paste or type text before submitting.');
+      setError('Paste or type some text first.');
       return;
     }
 
@@ -274,39 +268,37 @@ export function UploadPanel({ cluster }: { cluster: string }) {
 
   if (job && job.status === 'rejected') {
     return (
-      <Reveal>
-        <Card className="p-6">
-          <Badge tone="neutral">Discarded</Badge>
-          <h3 className="mt-3.5 text-h2 font-semibold text-bright">
-            {job.filename} was <span className="text-muted font-normal">not filed</span>
-          </h3>
-          <p className="mt-2 max-w-prose text-small text-medium">
-            The document and the plan have been deleted. The wiki was never touched.
-          </p>
-          <Button variant="ghost" className="mt-5" onClick={() => setJob(null)}>
-            Add another
-          </Button>
-        </Card>
-      </Reveal>
+      <Card className="p-4">
+        <Badge tone="neutral">Discarded</Badge>
+        <h3 className="mt-2.5 text-title font-semibold text-ink">{job.filename} was not filed</h3>
+        <p className="mt-1 max-w-prose text-body text-muted">
+          The document and the plan have been deleted. The wiki was never touched.
+        </p>
+        <Button variant="ghost" className="mt-4" onClick={() => setJob(null)}>
+          Add another
+        </Button>
+      </Card>
     );
   }
 
   if (job && (job.status === 'failed' || job.status === 'interrupted')) {
     return (
-      <Card className="border-error/40 p-6">
-        <div className="flex items-start gap-3">
-          <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-error" strokeWidth={1.75} />
-          <div className="flex-1">
-            <h3 className="text-bright font-semibold">
-              {job.status === 'interrupted' ? 'Ingest interrupted' : 'Ingest failed'}
+      <Card className="border-danger/50 p-4">
+        <div className="flex items-start gap-2.5">
+          <TriangleAlert className="mt-0.5 flex-none text-danger" size={17} />
+          <div className="min-w-0 flex-1">
+            <h3 className="text-body font-semibold text-ink">
+              {job.status === 'interrupted' ? 'Filing was interrupted' : 'Filing failed'}
             </h3>
-            <p className="mt-1.5 text-small text-medium">{job.error ?? 'The agent stopped before finishing.'}</p>
-            <p className="mt-1.5 text-small text-muted">
-              Nothing was half-written — the wiki is under version control.
+            <p role="alert" className="mt-1 text-body text-muted">
+              {job.error ?? 'The agent stopped before finishing.'}
+            </p>
+            <p className="mt-1 text-ui text-muted">
+              The wiki is under version control, so a half-written filing can be undone.
             </p>
             <Button
               variant="ghost"
-              className="mt-4"
+              className="mt-3"
               onClick={() => {
                 // Forget it here too, not only when the SSE event lands. A job
                 // that failed while the tab was shut is read back from disk on
@@ -319,7 +311,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
                 setJob(null);
               }}
             >
-              <RotateCcw className="h-4 w-4" strokeWidth={2} />
+              <RotateCcw size={15} />
               Try again
             </Button>
           </div>
@@ -330,28 +322,28 @@ export function UploadPanel({ cluster }: { cluster: string }) {
 
   if (running) {
     return (
-      <Card className="p-6">
-        <div className="flex items-center gap-2.5">
-          <Sparkles className="h-4 w-4 text-lavender" strokeWidth={1.75} />
-          <span className="text-bright font-medium">
+      <Card className="p-4">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 flex-none animate-pulse rounded-full bg-accent" aria-hidden />
+          <span className="text-body font-semibold text-ink">
             {parsingMsg ??
               (job?.status === 'executing'
                 ? `Filing ${job.filename}`
-                : `Reading ${job?.filename ?? 'your content'}`)}
+                : `Reading ${job?.filename ?? 'your text'}`)}
           </span>
           {job?.startedAt && <Elapsed since={job.startedAt} />}
         </div>
-        <p className="mt-1.5 text-small text-medium">
+        <p className="mt-1 max-w-prose text-ui text-muted">
           {job?.status === 'executing'
-            ? 'Writing the pages you approved, then linking them and updating the index. It reports when it is finished, not as it goes. You can leave this page; it keeps running.'
-            : 'The agent is reading the whole document to work out what it contains. Nothing is written to the wiki yet — you get to see the plan first. It reports when it is finished, not as it goes. You can leave this page; it keeps running.'}
+            ? 'Writing the pages you approved, then linking them and updating the index. You can leave this page. It keeps running.'
+            : 'The agent is reading the whole document to work out what it contains. Nothing is written to the wiki yet. You see the plan first. You can leave this page. It keeps running.'}
         </p>
 
-        <div className="mt-5 space-y-2">
+        <div className="mt-3 space-y-2">
           {job && job.lines.length > 0 ? (
-            <div className="max-h-48 overflow-y-auto rounded-lg border border-graphite bg-abyss/80 p-3 shadow-subtle">
+            <div className="max-h-44 overflow-y-auto rounded border border-line bg-canvas px-2.5 py-2">
               {job.lines.slice(-40).map((line, i) => (
-                <p key={i} className="font-mono text-[0.75rem] leading-relaxed text-medium">
+                <p key={i} className="font-mono text-small text-muted">
                   {line}
                 </p>
               ))}
@@ -369,69 +361,54 @@ export function UploadPanel({ cluster }: { cluster: string }) {
   }
 
   return (
-    <Card className="p-6">
-      {/* Header controls & Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-graphite pb-4">
-        <div className="flex items-center gap-1 rounded-lg border border-graphite bg-abyss/60 p-1 shadow-subtle">
-          <button
-            type="button"
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              tab === 'file'
-                ? 'bg-amethyst text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)]'
-                : 'text-medium hover:text-bright hover:bg-white/[0.04]'
-            }`}
-            onClick={() => {
-              setTab('file');
-              setError(null);
-            }}
-          >
-            <UploadCloud className="h-3.5 w-3.5" />
-            Upload File
-          </button>
-          <button
-            type="button"
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-              tab === 'paste'
-                ? 'bg-amethyst text-white shadow-[inset_0_1px_0_0_rgba(255,255,255,0.2)]'
-                : 'text-medium hover:text-bright hover:bg-white/[0.04]'
-            }`}
-            onClick={() => {
-              setTab('paste');
-              setError(null);
-            }}
-          >
-            <ClipboardPaste className="h-3.5 w-3.5" />
-            Paste Text
-          </button>
-        </div>
-
-        <span className="text-xs text-muted">You approve a plan before anything is written</span>
-      </div>
-
-      {tab === 'file' ? (
-        <div
-          className={`mt-4 rounded-xl border-2 border-dashed p-8 text-center transition-colors ${
-            dragging ? 'border-amethyst bg-tag-bg' : 'border-graphite hover:border-graphite/80 bg-surface/50'
-          }`}
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setDragging(false);
-            const file = e.dataTransfer.files?.[0];
-            if (file) void handleFileSubmit(file);
+    <Card>
+      <div className="sidebar-header tabs">
+        <button
+          type="button"
+          className={`panel-tab${tab === 'file' ? ' active' : ''}`}
+          onClick={() => {
+            setTab('file');
+            setError(null);
           }}
         >
-          <div className="flex flex-col items-center">
-            <span className="mb-3 flex h-11 w-11 items-center justify-center rounded-xl border border-graphite bg-surface shadow-subtle">
-              <FileText className="h-5 w-5 text-lavender" strokeWidth={1.75} />
-            </span>
-            <h3 className="text-bright font-semibold text-body">Upload Document</h3>
-            <p className="mt-1 max-w-prose text-small text-medium">
-              Drop a Word (.docx), PDF (.pdf), or Plain Text (.txt, .md) file here.
+          Upload a file
+        </button>
+        <button
+          type="button"
+          className={`panel-tab${tab === 'paste' ? ' active' : ''}`}
+          onClick={() => {
+            setTab('paste');
+            setError(null);
+          }}
+        >
+          Paste text
+        </button>
+        <span className="statusbar-spacer" />
+        <span className="hidden text-small text-muted sm:inline">You approve a plan before anything is written</span>
+      </div>
+
+      <div className="p-4">
+        {tab === 'file' ? (
+          <div
+            className={`rounded border border-dashed px-6 py-7 text-center ${
+              dragging ? 'border-accent bg-accent/10' : 'border-line'
+            }`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              const file = e.dataTransfer.files?.[0];
+              if (file) void handleFileSubmit(file);
+            }}
+          >
+            <FileText className="mx-auto text-faint" size={22} />
+            <h3 className="mt-2 text-body font-semibold text-ink">Add a document</h3>
+            <p className="mt-0.5 text-ui text-muted">
+              Drop a Word (.docx), PDF (.pdf) or plain text (.txt, .md) file here.
             </p>
 
             <input
@@ -445,49 +422,57 @@ export function UploadPanel({ cluster }: { cluster: string }) {
                 e.target.value = '';
               }}
             />
-            <Button className="mt-5" onClick={() => inputRef.current?.click()}>
-              <FileUp className="h-4 w-4" strokeWidth={2} />
-              Choose File
+            <Button className="mt-4" onClick={() => inputRef.current?.click()}>
+              <FileUp size={15} />
+              Choose a file
             </Button>
           </div>
-        </div>
-      ) : (
-        <div className="mt-4 space-y-3">
-          <div>
-            <label className="mb-1 block text-caption font-medium text-medium">
-              Document Title / Reference (Optional):
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Q3 Strategic Plan Notes"
-              value={pasteTitle}
-              onChange={(e) => setPasteTitle(e.target.value)}
-              className="w-full rounded-lg border border-graphite bg-abyss/80 px-3.5 py-2.5 text-body-sm text-bright placeholder:text-muted/60 focus:border-amethyst focus:ring-1 focus:ring-amethyst focus:outline-none shadow-subtle"
-            />
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label className="mb-1 block text-ui font-medium text-ink" htmlFor="paste-title">
+                Title <span className="font-normal text-muted">(optional)</span>
+              </label>
+              <input
+                id="paste-title"
+                type="text"
+                placeholder="e.g. Q3 planning notes"
+                value={pasteTitle}
+                onChange={(e) => setPasteTitle(e.target.value)}
+                className={INPUT}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-ui font-medium text-ink" htmlFor="paste-text">
+                Text
+              </label>
+              <textarea
+                id="paste-text"
+                rows={6}
+                placeholder="Paste text or Markdown here"
+                value={pasteContent}
+                onChange={(e) => setPasteContent(e.target.value)}
+                className={INPUT}
+              />
+            </div>
+            <Button onClick={handlePasteSubmit} disabled={!pasteContent.trim()}>
+              <Send size={15} />
+              Read this text
+            </Button>
           </div>
-          <div>
-            <label className="mb-1 block text-caption font-medium text-medium">Content / Text:</label>
-            <textarea
-              rows={6}
-              placeholder="Paste raw text or Markdown here..."
-              value={pasteContent}
-              onChange={(e) => setPasteContent(e.target.value)}
-              className="w-full rounded-lg border border-graphite bg-abyss/80 p-3 text-body-sm text-bright placeholder:text-muted/60 focus:border-amethyst focus:ring-1 focus:ring-amethyst focus:outline-none shadow-subtle"
-            />
-          </div>
-          <Button onClick={handlePasteSubmit} disabled={!pasteContent.trim()}>
-            <Sparkles className="h-4 w-4" strokeWidth={2} />
-            Ingest Text
-          </Button>
-        </div>
-      )}
+        )}
 
-      {error && <p className="mt-3.5 text-small text-error">{error}</p>}
+        {error && (
+          <p role="alert" className="mt-3 text-ui text-danger">
+            {error}
+          </p>
+        )}
+      </div>
     </Card>
   );
 }
 
-/** "working, N min" — the honest running state for an agent that answers in one block. */
+/** How long the agent has been at it. It answers in one block, so this is the only sign of life there is. */
 function Elapsed({ since }: { since: string }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -497,7 +482,7 @@ function Elapsed({ since }: { since: string }) {
   const s = Math.max(0, Math.floor((now - new Date(since).getTime()) / 1000));
   const label = s < 60 ? `${s}s` : `${Math.floor(s / 60)} min ${s % 60}s`;
   return (
-    <span className="ml-auto font-mono text-caption tabular-nums text-muted" aria-live="off">
+    <span className="ml-auto font-mono text-small tabular-nums text-muted" aria-live="off">
       {label}
     </span>
   );
@@ -514,50 +499,45 @@ function IngestDiff({ job, onDismiss }: { job: Job; onDismiss: () => void }) {
   ];
 
   return (
-    <Reveal>
-      <Card className="border-graphite p-6 shadow-subtle">
-        <Badge tone={attention ? 'danger' : 'success'}>{attention ? 'Needs attention' : 'Filed'}</Badge>
-        <h3 className="mt-3.5 text-h2 font-semibold text-bright">
-          {attention ? (
-            <>{job.filename} was read, but the record is <span className="text-error font-semibold">not in order</span></>
-          ) : (
-            <>{job.filename} is now <span className="text-lavender font-semibold">part of the wiki</span></>
-          )}
-        </h3>
+    <Card className={attention ? 'border-danger/50 p-4' : 'p-4'}>
+      <Badge tone={attention ? 'danger' : 'success'}>{attention ? 'Needs attention' : 'Filed'}</Badge>
+      <h3 className="mt-2.5 text-title font-semibold text-ink">
+        {attention
+          ? `${job.filename} was read, but the record is not in order`
+          : `${job.filename} is now part of the wiki`}
+      </h3>
 
-        <div className="mt-6 grid grid-cols-3 gap-3">
-          {stats.map((stat) => (
-            <div key={stat.label} className="rounded-xl border border-graphite bg-surface shadow-subtle px-4 py-4 text-center">
-              <div className="font-mono text-h1 text-bright tabular-nums font-semibold">{stat.value}</div>
-              <div className="mt-1 text-caption text-medium">{stat.label}</div>
-            </div>
+      <dl className="mt-4 grid grid-cols-3 divide-x divide-line rounded border border-line bg-canvas text-center">
+        {stats.map((stat) => (
+          <div key={stat.label} className="px-3 py-3">
+            <dd className="text-display font-semibold tabular-nums text-ink">{stat.value}</dd>
+            <dt className="text-small text-muted">{stat.label}</dt>
+          </div>
+        ))}
+      </dl>
+
+      {findings.length > 0 ? (
+        <ul className="mt-4 space-y-1.5" aria-label="Checks on what was written">
+          {findings.map((f, i) => (
+            <li key={i} className="flex items-start gap-2 text-ui">
+              <TriangleAlert
+                className={`mt-0.5 flex-none ${f.severity === 'error' ? 'text-danger' : 'text-warning'}`}
+                size={15}
+              />
+              <span className={f.severity === 'error' ? 'text-ink' : 'text-muted'}>{f.detail}</span>
+            </li>
           ))}
-        </div>
+        </ul>
+      ) : (
+        <p className="mt-4 max-w-prose text-ui text-muted">
+          Checked against the disk: the index and the log were updated, every new page is linked, and
+          every link points at a page that exists.
+        </p>
+      )}
 
-        {findings.length > 0 ? (
-          <ul className="mt-5 space-y-2" aria-label="Checks on what was written">
-            {findings.map((f, i) => (
-              <li key={i} className="flex items-start gap-2 text-small">
-                <TriangleAlert
-                  className={`mt-0.5 h-4 w-4 shrink-0 ${f.severity === 'error' ? 'text-error' : 'text-muted'}`}
-                  strokeWidth={1.75}
-                />
-                <span className={f.severity === 'error' ? 'text-bright' : 'text-medium'}>{f.detail}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-5 max-w-prose text-small text-medium">
-            Checked against the disk: the index and the log were updated, every new page is linked,
-            and every link points at a page that exists.
-          </p>
-        )}
-
-        <Button variant="ghost" className="mt-5" onClick={onDismiss}>
-          {attention ? 'Add another anyway' : 'Add another'}
-        </Button>
-      </Card>
-    </Reveal>
+      <Button variant="ghost" className="mt-4" onClick={onDismiss}>
+        {attention ? 'Add another anyway' : 'Add another'}
+      </Button>
+    </Card>
   );
 }
-

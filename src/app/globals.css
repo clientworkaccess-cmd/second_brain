@@ -1,35 +1,58 @@
+@import './theme.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * The frame, the tree, the tabs, the reading view and the graph chrome are the
+ * Second Brain desktop app's own rules, carried over with their class names
+ * (src/renderer/src/styles/ there). Where the two apps show the same thing they
+ * use the same CSS, so they cannot drift apart by accident.
+ *
+ * Everything that only this app has (upload, plan review, chat, the wizard) is
+ * built from the primitives in components/ui.tsx with the same tokens.
+ */
+
 @layer base {
-  html {
-    color-scheme: dark;
+  html,
+  body {
+    height: 100%;
+    margin: 0;
   }
 
   body {
-    @apply bg-abyss text-bright font-sans text-body antialiased;
-    /* Desing.md: no h-screen — use dvh so mobile browser chrome doesn't clip. */
-    min-height: 100dvh;
-  }
-
-  h1,
-  h2,
-  h3 {
-    @apply text-bright font-sans font-semibold;
+    font-family: var(--font-ui);
+    font-size: var(--font-size-ui);
+    line-height: 1.5;
+    color: var(--text-normal);
+    background: var(--bg-primary);
+    -webkit-font-smoothing: antialiased;
   }
 
   ::selection {
-    background: rgba(124, 58, 237, 0.35);
-    color: #ffffff;
+    background: var(--selection);
   }
 
-  /* Focus ring: Amethyst functional beacon, offset 2px. */
   :focus-visible {
-    @apply outline-none ring-2 ring-amethyst ring-offset-2 ring-offset-abyss;
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
-  /* Respect users who don't want motion. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     *,
     *::before,
@@ -42,83 +65,842 @@
 }
 
 @layer components {
-  /* Internal luminescence card/surface treatment from Desing.md */
-  .surface-card {
-    background-color: #1e1e1e;
-    border: 1px solid #3f3f3f;
-    border-radius: 12px;
-    box-shadow: rgba(255, 255, 255, 0.05) 0px 0px 0px 1px inset;
+  /* ---- App frame ---- */
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .app-body {
+    display: flex;
+    flex: 1;
+    min-height: 0;
   }
 
-  .glass {
-    background: rgba(30, 30, 30, 0.82);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border: 1px solid #3f3f3f;
-    box-shadow: rgba(255, 255, 255, 0.05) 0px 0px 0px 1px inset;
+  .sidebar {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: none;
+    min-width: 0;
+    background: var(--bg-secondary);
+  }
+  .sidebar.left {
+    width: 280px;
+    border-right: 1px solid var(--border);
+  }
+  .sidebar.right {
+    width: 300px;
+    border-left: 1px solid var(--border);
+  }
+  .sidebar-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 8px 0 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-header.tabs {
+    padding-left: 6px;
+    gap: 2px;
+  }
+  .sidebar-title {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .sidebar-body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
 
-  .shimmer {
-    background-image: linear-gradient(
-      90deg,
-      rgba(255, 255, 255, 0.02) 0%,
-      rgba(255, 255, 255, 0.07) 50%,
-      rgba(255, 255, 255, 0.02) 100%
-    );
-    background-size: 200% 100%;
-    @apply animate-shimmer;
+  .center {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    background: var(--bg-primary);
+  }
+  .center-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  /* What is not a wiki page: forms, the plan, the chat. Same column as a page. */
+  .content {
+    max-width: var(--content-width);
+    margin: 0 auto;
+    padding: 24px 24px 64px;
   }
 
-  /* Markdown rendering for wiki pages and chat answers. Hand-rolled per Desing.md */
-  .md {
-    @apply text-bright text-body;
+  .statusbar {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 12px;
+    height: 22px;
+    padding: 0 10px;
+    font-size: 11px;
+    white-space: nowrap;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
   }
-  .md > * + * {
-    @apply mt-4;
+  .statusbar-spacer {
+    flex: 1;
   }
-  .md h1 {
-    @apply text-h1 text-bright font-semibold mt-10 mb-2 first:mt-0;
+  .statusbar-item {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  .md h2 {
-    @apply text-h2 text-bright font-semibold mt-8 mb-1;
+  button.statusbar-item,
+  a.statusbar-item {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--text-muted);
+    cursor: pointer;
   }
-  .md h3 {
-    @apply text-bright text-body font-semibold mt-6;
+  button.statusbar-item:hover,
+  a.statusbar-item:hover {
+    color: var(--text-normal);
   }
-  .md p {
-    @apply max-w-prose text-bright leading-relaxed;
+
+  /* ---- Widgets ---- */
+
+  .muted {
+    color: var(--text-muted);
   }
-  .md ul {
-    @apply list-disc pl-5 space-y-1.5 max-w-prose text-bright;
+  .small {
+    font-size: 12px;
   }
-  .md ol {
-    @apply list-decimal pl-5 space-y-1.5 max-w-prose text-bright;
+  .pad {
+    padding: 12px;
   }
-  .md a {
-    @apply text-lavender underline underline-offset-4 decoration-lavender/40 hover:decoration-lavender transition-colors;
+
+  .icon-button {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
   }
-  .md code {
-    @apply font-mono text-small text-bright bg-surface border border-graphite px-1.5 py-0.5 rounded;
+  .icon-button:hover {
+    background: var(--bg-hover);
+    color: var(--text-normal);
   }
-  .md pre {
-    @apply font-mono text-small bg-surface border border-graphite rounded-lg p-4 overflow-x-auto shadow-subtle;
+  .icon-button.active {
+    color: var(--accent);
   }
-  .md pre code {
-    @apply bg-transparent border-0 p-0;
+
+  .panel-tab {
+    padding: 4px 10px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    cursor: pointer;
   }
-  .md blockquote {
-    @apply border-l-2 border-amethyst pl-4 italic text-medium;
+  .panel-tab:hover {
+    background: var(--bg-hover);
   }
-  .md table {
-    @apply w-full text-small border-collapse;
+  .panel-tab.active {
+    color: var(--text-normal);
   }
-  .md th {
-    @apply text-bright text-left font-medium border-b border-graphite py-2 pr-4;
+
+  .section-title {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-muted);
   }
-  .md td {
-    @apply border-b border-graphite/60 py-2 pr-4 align-top text-medium;
+
+  /* ---- Tree ---- */
+
+  .tree {
+    padding: 4px 0;
+    min-height: 100%;
+    user-select: none;
   }
-  .md hr {
-    @apply border-graphite my-8;
+  .tree-row {
+    display: flex;
+    align-items: center;
+    width: calc(100% - 12px);
+    height: 26px;
+    margin: 0 6px;
+    padding: 0 8px 0 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    text-decoration: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .tree-row:hover {
+    background: var(--bg-hover);
+  }
+  .tree-row.active {
+    background: var(--bg-active);
+  }
+  .tree-chevron {
+    display: inline-flex;
+    flex: none;
+    width: 16px;
+    color: var(--text-faint);
+  }
+  .tree-icon {
+    flex: none;
+    margin-right: 5px;
+    color: var(--text-muted);
+  }
+  .tree-row.file .tree-icon {
+    color: var(--text-faint);
+  }
+  .tree-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tree-count {
+    margin-left: auto;
+    padding-left: 8px;
+    font-size: 11px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- Tabs ---- */
+
+  .tabbar {
+    display: flex;
+    flex: none;
+    align-items: stretch;
+    height: 36px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: thin;
+  }
+  .tabbar::-webkit-scrollbar {
+    height: 4px;
+  }
+  .tabbar-tools {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    padding: 0 6px;
+  }
+  .tab {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    max-width: 220px;
+    padding: 0 8px 0 14px;
+    color: var(--text-muted);
+    border-right: 1px solid var(--border);
+    white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  .tab:hover {
+    background: var(--bg-hover);
+  }
+  .tab.active {
+    color: var(--text-normal);
+    background: var(--bg-primary);
+  }
+  .tab-name {
+    align-self: stretch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 36px;
+    color: inherit;
+    text-decoration: none;
+    outline-offset: -2px;
+  }
+  .tab-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    visibility: hidden;
+  }
+  .tab:hover .tab-close,
+  .tab.active .tab-close {
+    visibility: visible;
+  }
+  .tab-close:hover {
+    background: var(--bg-active);
+    color: var(--text-normal);
+  }
+
+  /* ---- Reading view ---- */
+
+  .preview {
+    max-width: var(--content-width);
+    margin: 0 auto;
+    padding: 32px 24px 30vh;
+    font-family: var(--font-text);
+    font-size: var(--font-size-text);
+    line-height: 1.6;
+    color: var(--text-normal);
+    word-wrap: break-word;
+  }
+  /* The same typography inside a card or a chat answer, without the page's own margins. */
+  .preview.compact {
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    font-size: 14px;
+  }
+
+  .preview h1,
+  .preview h2,
+  .preview h3,
+  .preview h4,
+  .preview h5,
+  .preview h6 {
+    margin: 1.2em 0 0.4em;
+    line-height: 1.25;
+    font-weight: 600;
+    scroll-margin-top: 16px;
+  }
+  .preview h1 {
+    font-size: 1.7em;
+    font-weight: 700;
+  }
+  .preview h2 {
+    font-size: 1.45em;
+    font-weight: 700;
+  }
+  .preview h3 {
+    font-size: 1.25em;
+  }
+  .preview h4,
+  .preview h5,
+  .preview h6 {
+    font-size: 1.05em;
+  }
+  .preview > :first-child {
+    margin-top: 0;
+  }
+
+  .preview p {
+    margin: 0 0 1em;
+  }
+  .preview ul,
+  .preview ol {
+    margin: 0 0 1em;
+    padding-left: 1.6em;
+  }
+  .preview ul {
+    list-style: disc;
+  }
+  .preview ol {
+    list-style: decimal;
+  }
+  .preview li > p {
+    margin: 0;
+  }
+  .preview li {
+    margin: 0.15em 0;
+  }
+  .preview hr {
+    height: 1px;
+    margin: 1.5em 0;
+    border: none;
+    background: var(--border);
+  }
+
+  .preview a {
+    color: var(--link);
+    text-decoration: none;
+  }
+  .preview a:hover {
+    text-decoration: underline;
+  }
+  .preview .is-unresolved {
+    color: var(--text-muted);
+    text-decoration: underline dashed;
+    text-underline-offset: 3px;
+    cursor: help;
+  }
+  .preview a.external-link::after {
+    content: '↗';
+    margin-left: 2px;
+    font-size: 0.8em;
+    color: var(--text-faint);
+  }
+
+  .preview code {
+    padding: 1px 4px;
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    border-radius: 3px;
+    background: var(--code-bg);
+  }
+  .preview pre {
+    margin: 0 0 1em;
+    padding: 12px 14px;
+    overflow: auto;
+    border-radius: var(--radius);
+    background: var(--code-bg);
+  }
+  .preview pre code {
+    padding: 0;
+    font-size: 0.88em;
+    background: none;
+  }
+
+  .preview blockquote {
+    margin: 0 0 1em;
+    padding: 0 0 0 14px;
+    border-left: 3px solid var(--accent);
+    color: var(--text-muted);
+  }
+  .preview blockquote > :last-child {
+    margin-bottom: 0;
+  }
+
+  .preview table {
+    margin: 0 0 1em;
+    border-collapse: collapse;
+    font-size: 0.95em;
+  }
+  .preview th,
+  .preview td {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  .preview th {
+    background: var(--bg-secondary);
+    font-weight: 600;
+  }
+
+  .preview .contains-task-list {
+    list-style: none;
+    padding-left: 0.4em;
+  }
+  .preview input[type='checkbox'] {
+    margin: 0 8px 0 0;
+    vertical-align: -1px;
+    accent-color: var(--accent);
+  }
+
+  /* ---- Properties (the block at the top of a page) ---- */
+
+  .properties {
+    margin: 0 0 1.5em;
+    padding: 8px 12px;
+    font-size: 0.9em;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+  }
+  .properties summary {
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .properties table {
+    margin: 6px 0 0;
+    border-collapse: collapse;
+    font-size: 1em;
+  }
+  .properties th,
+  .properties td {
+    padding: 2px 10px 2px 0;
+    border: none;
+    background: none;
+    text-align: left;
+    vertical-align: top;
+  }
+  .properties th {
+    color: var(--text-muted);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .tag {
+    display: inline-block;
+    padding: 0 7px;
+    font-size: 0.85em;
+    line-height: 1.6;
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    color: var(--accent);
+    text-decoration: none;
+  }
+  a.tag:hover {
+    text-decoration: underline;
+  }
+
+  /* ---- Right sidebar panels ---- */
+
+  /* Named .outline in the desktop app. Here that name is a Tailwind utility. */
+  .backlinks,
+  .outline-list {
+    padding: 6px 0;
+  }
+  .backlink-group {
+    padding: 4px 8px;
+  }
+  .backlink-source {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 4px 6px;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    font: inherit;
+    font-weight: 600;
+    text-align: left;
+    text-decoration: none;
+    color: var(--text-normal);
+    cursor: pointer;
+  }
+  .backlink-source:hover {
+    background: var(--bg-hover);
+  }
+  .backlink-source span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .backlink-context {
+    margin: 2px 0 2px 6px;
+    padding: 4px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    border-left: 2px solid var(--border);
+    color: var(--text-muted);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+  .outline-item {
+    display: block;
+    width: 100%;
+    padding: 4px 8px;
+    border: none;
+    background: none;
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
+    color: var(--text-normal);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .outline-item:hover {
+    background: var(--bg-hover);
+  }
+
+  /* ---- Graph ---- */
+
+  .graph-pane {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .graph-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 10px;
+    height: 36px;
+    padding: 0 8px 0 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+  }
+  .graph-header .sidebar-title {
+    flex: none;
+  }
+  .graph-body {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+  .graph-host {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--bg-primary);
+  }
+  .graph-host svg {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    user-select: none;
+  }
+  .graph-legend {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    max-height: 60%;
+    overflow: auto;
+    padding: 8px 10px;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    pointer-events: none;
+  }
+  .graph-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    line-height: 1.7;
+  }
+  .graph-legend-swatch {
+    flex: none;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .graph-legend-swatch.unresolved {
+    background: var(--text-faint);
+    opacity: 0.55;
+  }
+  .graph-legend-count {
+    margin-left: auto;
+    padding-left: 12px;
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .graph-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 9px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .graph-toggle:hover:not(:disabled) {
+    color: var(--text-normal);
+    border-color: var(--text-faint);
+  }
+
+  /* ---- Search panel ---- */
+
+  .search-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+  .search-box {
+    padding: 8px;
+  }
+  .search-input {
+    width: 100%;
+    padding: 6px 10px;
+    font: inherit;
+    color: inherit;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    outline: none;
+  }
+  .search-input:focus {
+    border-color: var(--accent);
+  }
+  .search-summary {
+    padding: 0 12px 6px;
+  }
+  .search-results {
+    flex: 1;
+    overflow: auto;
+    padding: 0 6px 6px;
+  }
+  .search-hit {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    color: inherit;
+    text-align: left;
+    text-decoration: none;
+  }
+  .search-hit:hover {
+    background: var(--bg-hover);
+  }
+  .search-hit-title {
+    font-weight: 600;
+  }
+  .search-hit-snippet {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-muted);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+  }
+  .search-hit mark {
+    padding: 0;
+    background: none;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  /* ---- Chat ---- */
+
+  .chat {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .chat-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+  }
+  .chat-composer {
+    flex: none;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+  }
+  .chat-composer-inner {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    max-width: var(--content-width);
+    margin: 0 auto;
+    padding: 10px 24px;
+  }
+  .chat-composer textarea {
+    flex: 1;
+    max-height: 160px;
+    padding: 6px 10px;
+    font: inherit;
+    font-size: 14px;
+    color: inherit;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    outline: none;
+    resize: none;
+  }
+  .chat-composer textarea:focus {
+    border-color: var(--accent);
+  }
+
+  /*
+   * ---- Which sidebars are open ----
+   *
+   * Decided by attributes on <html> (see components/frame/controls.tsx), so the
+   * answer is there before the first paint. On a wide screen a sidebar is open
+   * unless it was closed; on a narrow one it lies over the page and is closed
+   * unless it was opened.
+   */
+
+  .sidebar-scrim {
+    display: none;
+  }
+  @media (min-width: 901px) {
+    html[data-left='0'] .sidebar.left,
+    html[data-right='0'] .sidebar.right {
+      display: none;
+    }
+  }
+  @media (max-width: 900px) {
+    .sidebar.left,
+    .sidebar.right {
+      position: fixed;
+      top: 0;
+      bottom: 22px;
+      z-index: 200;
+      display: none;
+      width: min(300px, 86vw);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+    .sidebar.left {
+      left: 0;
+    }
+    .sidebar.right {
+      right: 0;
+    }
+    html[data-left-open='1'] .sidebar.left,
+    html[data-right-open='1'] .sidebar.right {
+      display: flex;
+    }
+    html[data-left-open='1'] .sidebar-scrim,
+    html[data-right-open='1'] .sidebar-scrim {
+      position: fixed;
+      inset: 0;
+      z-index: 190;
+      display: block;
+      border: none;
+      background: rgba(0, 0, 0, 0.35);
+    }
+    .preview {
+      padding: 20px 16px 30vh;
+    }
+    .content {
+      padding: 16px 16px 48px;
+    }
+  }
+
+  /* The status bar keeps what is needed to act; the page's own facts give way first. */
+  .statusbar > button.statusbar-item {
+    flex: none;
+  }
+  @media (max-width: 600px) {
+    #statusbar-page,
+    .statusbar > .statusbar-item.detail {
+      display: none;
+    }
   }
 }

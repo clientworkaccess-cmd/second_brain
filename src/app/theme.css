@@ -1,0 +1,115 @@
+/*
+ * Theme tokens. The same names and values as the Second Brain desktop app
+ * (src/renderer/src/styles/theme.css there), so the two look like one product.
+ *
+ * <html data-theme="dark|light"> is set by the script in layout.tsx when the
+ * reader has chosen one. With no choice made the media query decides, so a dark
+ * system theme never flashes white.
+ *
+ * Colours are written as channels (`13 148 136`) and turned into colours
+ * below. Tailwind needs the channels to build `border-accent/40`.
+ */
+
+:root {
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-text: var(--font-ui);
+  --font-mono: 'Cascadia Code', 'SF Mono', Menlo, Consolas, 'Courier New', monospace;
+  --font-size-ui: 13px;
+  --font-size-text: 16px;
+  --radius: 6px;
+  --content-width: 760px;
+  color-scheme: light;
+
+  --c-bg-primary: 255 255 255;
+  --c-bg-secondary: 245 245 245;
+  --c-bg-tertiary: 233 233 233;
+  --c-border: 220 220 220;
+  --c-text-normal: 34 34 34;
+  --c-text-muted: 111 111 111;
+  --c-text-faint: 163 163 163;
+  --c-text-on-accent: 255 255 255;
+  --c-accent: 13 148 136;
+  --c-accent-hover: 15 118 110;
+  --c-link: 15 118 110;
+  --c-danger: 210 63 63;
+  --c-success: 8 137 62;
+  --c-warning: 190 100 0;
+  --c-code-bg: 240 240 240;
+
+  --bg-hover: rgba(0, 0, 0, 0.06);
+  --bg-active: rgba(0, 0, 0, 0.1);
+  --scrollbar: rgba(0, 0, 0, 0.2);
+  --selection: rgba(13, 148, 136, 0.22);
+  --graph-lightness: 42%;
+
+  /* The names the desktop app's stylesheets use. */
+  --bg-primary: rgb(var(--c-bg-primary));
+  --bg-secondary: rgb(var(--c-bg-secondary));
+  --bg-tertiary: rgb(var(--c-bg-tertiary));
+  --border: rgb(var(--c-border));
+  --text-normal: rgb(var(--c-text-normal));
+  --text-muted: rgb(var(--c-text-muted));
+  --text-faint: rgb(var(--c-text-faint));
+  --text-on-accent: rgb(var(--c-text-on-accent));
+  --accent: rgb(var(--c-accent));
+  --accent-hover: rgb(var(--c-accent-hover));
+  --link: rgb(var(--c-link));
+  --danger: rgb(var(--c-danger));
+  --success: rgb(var(--c-success));
+  --warning: rgb(var(--c-warning));
+  --code-bg: rgb(var(--c-code-bg));
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --c-bg-primary: 30 30 30;
+  --c-bg-secondary: 38 38 38;
+  --c-bg-tertiary: 48 48 48;
+  --c-border: 56 56 56;
+  --c-text-normal: 220 221 222;
+  --c-text-muted: 155 155 155;
+  --c-text-faint: 102 102 102;
+  --c-text-on-accent: 11 43 40;
+  --c-accent: 45 212 191;
+  --c-accent-hover: 94 234 212;
+  --c-link: 94 234 212;
+  --c-danger: 255 107 107;
+  --c-success: 74 222 128;
+  --c-warning: 251 191 36;
+  --c-code-bg: 43 43 43;
+
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-active: rgba(255, 255, 255, 0.11);
+  --scrollbar: rgba(255, 255, 255, 0.2);
+  --selection: rgba(45, 212, 191, 0.28);
+  --graph-lightness: 64%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --c-bg-primary: 30 30 30;
+    --c-bg-secondary: 38 38 38;
+    --c-bg-tertiary: 48 48 48;
+    --c-border: 56 56 56;
+    --c-text-normal: 220 221 222;
+    --c-text-muted: 155 155 155;
+    --c-text-faint: 102 102 102;
+    --c-text-on-accent: 11 43 40;
+    --c-accent: 45 212 191;
+    --c-accent-hover: 94 234 212;
+    --c-link: 94 234 212;
+    --c-danger: 255 107 107;
+    --c-success: 74 222 128;
+    --c-warning: 251 191 36;
+    --c-code-bg: 43 43 43;
+
+    --bg-hover: rgba(255, 255, 255, 0.06);
+    --bg-active: rgba(255, 255, 255, 0.11);
+    --scrollbar: rgba(255, 255, 255, 0.2);
+    --selection: rgba(45, 212, 191, 0.28);
+    --graph-lightness: 64%;
+  }
+}
