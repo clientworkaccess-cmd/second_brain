@@ -34,6 +34,23 @@ import type { Layout } from './layout';
 
 export type AgentMode = 'plan' | 'execute' | 'chat';
 
+/**
+ * A conversation: the one thing a run may keep.
+ *
+ * Planning and filing keep nothing, since no run of theirs is ever continued.
+ * A question can be the next in a conversation: then the session is kept, by
+ * the binary in Claude's own folder, under an id the app gave it, and the next
+ * question resumes it. The id is the app's, made fresh for each conversation.
+ */
+export interface Conversation {
+  /** A UUID. */
+  id: string;
+  /** False for the first question, true for every later one. */
+  resume: boolean;
+}
+
+export const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface AgentRun {
   /** Progress, one line at a time: what the agent is reading and writing, and what it says. */
   lines: AsyncGenerator<string>;
@@ -120,8 +137,11 @@ function fromRoot(absolute: string): string {
 }
 
 /** The generated part of the command line. Exported so the check scripts can hold it against the real binary. */
-export function agentArgs(mode: AgentMode, layout: Layout): string[] {
+export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null): string[] {
   const { tools, allow } = profile(mode, layout);
+  if (conversation && (mode !== 'chat' || !CONVERSATION_ID.test(conversation.id))) {
+    throw new Error('Only a question can be part of a conversation, and its id is a UUID');
+  }
   return [
     '-p',
     '--output-format', 'stream-json',
@@ -135,7 +155,9 @@ export function agentArgs(mode: AgentMode, layout: Layout): string[] {
     '--setting-sources', '',
     '--strict-mcp-config',
     '--disable-slash-commands',
-    '--no-session-persistence',
+    // Nothing is kept of a run, except a conversation, which the next question
+    // in it resumes.
+    ...(conversation ? [conversation.resume ? '--resume' : '--session-id', conversation.id] : ['--no-session-persistence']),
     ...(CLAUDE_MODEL ? ['--model', CLAUDE_MODEL] : []),
   ];
 }
@@ -183,8 +205,9 @@ export function agentInvocation(
   mode: AgentMode,
   cwd: string,
   layout: Layout,
+  conversation: Conversation | null = null,
 ): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
-  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout)], env: narrowEnv(cwd) };
+  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation)], env: narrowEnv(cwd) };
 }
 
 /** See streamLogDir() in config.ts. A run is never failed because its record could not be kept. */
@@ -210,6 +233,8 @@ export function runClaude(opts: {
   cwd: string;
   /** How that wiki is laid out: it decides the rules the run is given and what it may write. */
   layout: Layout;
+  /** Chat only: the conversation this question is part of. */
+  conversation?: Conversation | null;
   timeoutMs?: number;
   usageFile?: string;
 }): AgentRun {
@@ -218,7 +243,7 @@ export function runClaude(opts: {
   const parser = new StreamParser(opts.cwd);
   const chat = opts.mode === 'chat';
 
-  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout);
+  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null);
   const record = openStreamLog(opts.mode);
   const child = spawn(command, args, {
     cwd: opts.cwd,
