@@ -131,6 +131,15 @@ export async function loadWiki(cluster: string, options: { fresh?: boolean } = {
   return current.wiki;
 }
 
+/**
+ * Forget what was read of a wiki, so that the next look reads every page again.
+ * For the app's own rewrites: a link rewritten to a name of the same length
+ * leaves a file's size and, within the clock's grain, its mtime as they were.
+ */
+export function forgetWiki(cluster: string): void {
+  kept.delete(clusterPath(cluster));
+}
+
 /** Names an agent reads as instructions. Never pages, whatever folder they are in. */
 const NOT_PAGES = new Set(['claude.md', 'claude.local.md', 'agents.md']);
 const MAX_DEPTH = 4;

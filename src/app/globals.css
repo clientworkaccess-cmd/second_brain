@@ -951,6 +951,37 @@
     gap: 6px;
   }
 
+  /* ---- Rename and delete, from the status bar ---- */
+
+  .page-action {
+    position: fixed;
+    right: 12px;
+    bottom: 34px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 300px;
+    padding: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  }
+  .page-action-note {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+  .page-action-error {
+    font-size: 12px;
+    color: var(--danger);
+  }
+  .graph-toggle.danger {
+    color: var(--danger);
+    border-color: var(--danger);
+  }
+
   /* ---- Facet filters at the top of the page tree ---- */
 
   .tree-filters {

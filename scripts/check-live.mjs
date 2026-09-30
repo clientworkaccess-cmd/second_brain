@@ -380,6 +380,24 @@ try {
   notImage.append('cluster', 'operations');
   notImage.append('file', new Blob(['hello'], { type: 'text/plain' }), 'notes.txt');
   check('only an image can be added this way', (await fetch(`${base}/api/asset`, { method: 'POST', body: notImage, headers: { cookie } })).status === 400);
+
+  // --------------------------------------------------- rename and delete
+  await fetch(`${base}/api/page/rename`, withCookie(json({ cluster: 'operations', slug: 'entities/with-image', title: 'Picture Page' }), cookie));
+  const renamed = await fetch(`${base}/api/page/rename`, withCookie(json({ cluster: 'operations', slug: 'entities/warehouse-team', title: 'Warehouse Crew' }), cookie));
+  const renamedData = await renamed.json();
+  check('a page can be renamed', renamed.status === 200 && renamedData.to === 'entities/warehouse-crew' && renamedData.rewritten.length >= 1 && typeof renamedData.commit === 'string', `${renamed.status} ${JSON.stringify(renamedData)}`);
+  const crew = await (await get('/api/page?cluster=operations&slug=entities/warehouse-crew', { cookie })).json();
+  const teamGone = await (await get('/api/page?cluster=operations&slug=entities/warehouse-team', { cookie })).json();
+  check('it is read under its new name and not its old one', crew.exists === true && crew.text.includes('# Warehouse Crew') && teamGone.exists === false);
+  const relinked = await (await get('/api/page?cluster=operations&slug=index', { cookie })).json();
+  check('the index links to it by its new name', relinked.text.includes('[[Warehouse Crew') && !relinked.text.includes('[[Warehouse Team'), relinked.text.split('\n').filter((l) => /warehouse/i.test(l)).join(' | '));
+  const renamedPage = await get('/c/operations/entities/warehouse-crew', { cookie });
+  check('the renamed page opens', renamedPage.status === 200 && (await renamedPage.text()).includes('Warehouse Crew'));
+  check('renaming onto another page is refused', (await fetch(`${base}/api/page/rename`, withCookie(json({ cluster: 'operations', slug: 'entities/warehouse-crew', title: 'Returns Portal' }), cookie))).status === 409);
+  const deleted = await fetch(`${base}/api/page`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cluster: 'operations', slug: 'entities/picture-page' }) }, cookie)).then(async (r) => ({ status: r.status, data: await r.json() }));
+  check('a page can be deleted', deleted.status === 200 && deleted.data.slug === 'entities/picture-page' && typeof deleted.data.commit === 'string', `${deleted.status} ${JSON.stringify(deleted.data)}`);
+  check('and is gone', (await (await get('/api/page?cluster=operations&slug=entities/picture-page', { cookie })).json()).exists === false && (await get('/c/operations/entities/picture-page', { cookie })).status === 404);
+  check('the index and the log are not deleted', (await fetch(`${base}/api/page`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cluster: 'operations', slug: 'index' }) }, cookie))).status === 400);
   check('the rules are as they were', (await fs.readFile(path.join(app.wiki, 'operations', 'SCHEMA.md'), 'utf8')).length > 100 && !(await fs.readdir(path.join(app.wiki, 'operations'))).includes('CLAUDE.md'));
   const anon = await fetch(`${base}/api/page?cluster=operations&slug=entities/warehouse-team`);
   check('the editor needs a session', anon.status === 401, String(anon.status));
@@ -444,7 +462,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 

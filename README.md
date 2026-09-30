@@ -64,7 +64,7 @@ npm run build && npm run serve
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
 | `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
-| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, images served, refused and added, the trail, a signed-out agent. Needs `npm run build` first |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, images served, refused and added, a page renamed and one deleted, the trail, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |
 
@@ -310,7 +310,12 @@ A page that changed on disk since it was opened is not overwritten: the
 writer is told and chooses. "Done" saves, makes a restore point, and goes
 back to reading. A new page starts from the page tree, with the block the
 rules ask for already in it. Only pages can be written this way: not the
-rules, not the sources, nothing outside the pages.
+rules, not the sources, nothing outside the pages. A page can be renamed or
+deleted from the status bar. A rename is a new title: the file name follows
+it, and so does every link to the page, in every page and in the index
+(links written as an alias stay). A delete says first how many pages link
+here, then takes the page out and its line out of the index. Both make a
+restore point.
 
 **Images show in pages.** `![[photo.png]]` shows the file, found by its name
 (one in the page's own folder first, then the shortest path); `![[photo.png|300]]`

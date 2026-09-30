@@ -46,9 +46,12 @@ const SAID: Record<string, string> = {
   'filing-discarded': 'Upload discarded',
   'filing-undone': 'Filing undone',
   'page-saved': 'Page saved',
+  'page-renamed': 'Page renamed',
+  'page-deleted': 'Page deleted',
+  'image-added': 'Image added',
 };
 
-const WARY = new Set(['sign-in-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone']);
+const WARY = new Set(['sign-in-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);
 
 function when(iso: string): string {
   const d = new Date(iso);
