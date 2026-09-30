@@ -1,3 +1,4 @@
+import { isImagePath } from './assetPaths';
 import { headingId } from './outline';
 
 /**
@@ -92,9 +93,20 @@ function shownFor(target: Target): string {
  * that it renders as a visible dead link rather than a silent 404, which is the
  * signal the check after filing wants.
  */
-export function linkifyWikilinks(text: string, cluster: string, known: Map<string, string>): string {
+export function linkifyWikilinks(text: string, cluster: string, known: Map<string, string>, images?: (target: string) => string | null): string {
   return outsideCode(text, (prose) =>
-    prose.replace(LINK, (_all, _embed: string, raw: string, label?: string) => {
+    prose.replace(LINK, (_all, embed: string, raw: string, label?: string) => {
+      // `![[photo.png]]`, and `![[photo.png|300]]` for a width: an image, where
+      // the page knows its images. A label that is not a number is the alt text.
+      if (embed === '!' && images && isImagePath(raw.trim())) {
+        const name = raw.trim();
+        const href = images(name);
+        if (!href) return `[${escapeLabel(name)}](/c/${cluster}?missing=${encodeURIComponent(name)})`;
+        const note = (label ?? '').trim();
+        const width = /^\d+$/.test(note) ? note : '';
+        const alt = escapeLabel(width || !note ? (name.split('/').pop() ?? name) : note);
+        return `![${alt}](${href}${width ? ` "w=${width}"` : ''})`;
+      }
       const target = parseTarget(raw);
       const shown = escapeLabel((label ?? shownFor(target)).trim());
       const anchor = target.heading ? `#${encodeURIComponent(headingId(target.heading))}` : '';

@@ -21,9 +21,10 @@
     "check:layout": "node scripts/check-layout.mjs",
     "check:facets": "node scripts/check-facets.mjs",
     "check:design": "node scripts/check-design.mjs",
+    "check:assets": "node scripts/check-assets.mjs",
     "check:live": "node scripts/check-live.mjs",
     "check:real": "node scripts/check-real.mjs",
-    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design"
+    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

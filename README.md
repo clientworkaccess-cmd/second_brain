@@ -64,7 +64,7 @@ npm run build && npm run serve
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
 | `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
-| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, the trail, a signed-out agent. Needs `npm run build` first |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, images served, refused and added, the trail, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |
 
@@ -311,6 +311,15 @@ writer is told and chooses. "Done" saves, makes a restore point, and goes
 back to reading. A new page starts from the page tree, with the block the
 rules ask for already in it. Only pages can be written this way: not the
 rules, not the sources, nothing outside the pages.
+
+**Images show in pages.** `![[photo.png]]` shows the file, found by its name
+(one in the page's own folder first, then the shortest path); `![[photo.png|300]]`
+sets the width; `![](../raw/assets/photo.png)` names it by path. An image
+pasted or dropped into the editor is added to the wiki's `raw/assets` and
+embedded where the cursor is. Only images are served (png, jpg, gif, webp,
+avif, bmp, svg), only from inside the wiki, never from a hidden or private
+folder, and never a page's text. A remote image in a document is left out:
+its address can tell someone who opened the page.
 
 **Every filing is on record.** The Filings panel on a wiki's front page lists
 them, newest first, with what became of each: filed, needing attention,

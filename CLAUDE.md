@@ -19,8 +19,8 @@ runs, which loads no settings or instruction files from anywhere.
   behaviour, and for any walk-through in a browser.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
-- `npm run check` — stream, auth, pipeline, lint, page, layout, facet and
-  design checks, all against the stand-in. `npm run typecheck` — tsc.
+- `npm run check` — stream, auth, pipeline, lint, page, layout, facet,
+  design and asset checks, all against the stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
 - `npm run check:real` — the app's exact command line against the real binary.
@@ -66,6 +66,10 @@ runs, which loads no settings or instruction files from anywhere.
 - **The block at the top of a page is read in `src/lib/frontmatter.ts` and
   nowhere else**, as YAML only. Never call the parser directly: it reads other
   formats when a block names one, and a page is data.
+- **Only images are served from a wiki, and only from inside it**
+  (`src/lib/assets.ts`): by extension, never a page's text, never a folder
+  whose name starts with `.` or `_`. `check:assets` guards it. A remote image
+  in a page is not shown at all.
 - **Never commit real documents or a filled-in env file.**
 
 ## The interface
@@ -113,7 +117,11 @@ and are to be kept in step with it rather than edited here. `extensions.ts`,
 here is handed its link targets and hooks by the page instead of reading a
 store. `src/lib/pages.ts` is the one place the app writes a page: a `.md`
 file among the pages and nothing else, refused when the file moved on since
-it was read.
+it was read. `src/lib/assetPaths.ts` is how `![[photo.png]]` finds its file
+(pure; the reading view, the editor and the server share it), `src/lib/assets.ts`
+lists, reads and adds images, `GET/POST /api/asset` serves and takes them,
+and `src/editor/imagePaste.ts` turns a paste or a drop into an upload and an
+embed.
 
 ## The graph
 
