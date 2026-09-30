@@ -18,7 +18,8 @@ import { Button, Card, Badge, INPUT, SectionTitle } from '@/components/ui';
  */
 
 export interface PlanPage {
-  kind: 'entity' | 'concept' | 'comparison' | 'query';
+  /** One of the kinds of page the wiki has: 'entity', 'source', and so on. */
+  kind: string;
   name: string;
   summary: string;
   quote: string;
@@ -36,12 +37,16 @@ export interface Plan {
   skipped: { what: string; why: string }[];
 }
 
-const KIND_LABEL: Record<PlanPage['kind'], string> = {
+/** What a kind of page is, in the reader's words. A kind not named here is shown as it is. */
+const KIND_LABEL: Record<string, string> = {
+  source: 'summary of the document',
   entity: 'person or thing',
   concept: 'idea or process',
   comparison: 'comparison',
   query: 'recurring question',
+  synthesis: 'analysis or answer',
 };
+const kindLabel = (kind: string): string => KIND_LABEL[kind] ?? kind;
 
 export function PlanReview({
   plan,
@@ -91,7 +96,7 @@ export function PlanReview({
       {created.length > 0 && (
         <Section title="New to the wiki">
           {created.map((p, i) => (
-            <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
+            <Item key={i} title={p.name} note={kindLabel(p.kind)} body={p.summary} quote={p.quote} />
           ))}
         </Section>
       )}
@@ -99,7 +104,7 @@ export function PlanReview({
       {updated.length > 0 && (
         <Section title="Already known, and something new about it">
           {updated.map((p, i) => (
-            <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
+            <Item key={i} title={p.name} note={kindLabel(p.kind)} body={p.summary} quote={p.quote} />
           ))}
         </Section>
       )}

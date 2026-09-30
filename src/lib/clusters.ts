@@ -14,6 +14,9 @@ import {
   assertClusterName,
   clusterPath,
 } from './config';
+import { exists, readIfPresent } from './files';
+import { BRAIN, CLUSTER, indexFile, layoutOf, type Layout } from './layout';
+import { listPages } from './wiki';
 
 const exec = promisify(execFile);
 
@@ -23,6 +26,8 @@ export interface Cluster {
   scope: string;
   pageCount: number;
   updatedAt: string | null;
+  /** How the wiki is laid out on disk. See lib/layout.ts. */
+  layout: Layout['id'];
 }
 
 /** Create the dashboard-owned directories. Safe to call on every boot. */
@@ -33,9 +38,9 @@ export async function ensureDashboardDirs(): Promise<void> {
 }
 
 /**
- * There is no clusters.json. A cluster *is* a directory containing an index.md,
- * so listing is a readdir plus a filter. Nothing to drift out of sync, and a
- * cluster stays portable.
+ * There is no clusters.json. A wiki *is* a directory containing an index.md,
+ * at its top or in wiki/, so listing is a readdir plus a filter. Nothing to
+ * drift out of sync, and a wiki stays portable.
  *
  * .dashboard/ has no index.md, which is exactly why it is invisible here.
  */
@@ -46,8 +51,12 @@ export async function listClusters(): Promise<Cluster[]> {
 
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    // A folder someone put there by hand can have any name. One this app cannot
+    // address is left out rather than listed and then refused.
+    if (!/^[a-z0-9_-]+$/.test(entry.name)) continue;
     const dir = path.join(WIKI_ROOT, entry.name);
-    if (!(await exists(path.join(dir, 'index.md')))) continue;
+    const found = await Promise.all([CLUSTER, BRAIN].map((layout) => exists(path.join(dir, indexFile(layout)))));
+    if (!found.some(Boolean)) continue;
     out.push(await describeCluster(entry.name));
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -56,20 +65,22 @@ export async function listClusters(): Promise<Cluster[]> {
 export async function describeCluster(name: string): Promise<Cluster> {
   assertClusterName(name);
   const dir = clusterPath(name);
-  const schema = await readIfPresent(path.join(dir, 'SCHEMA.md'));
+  const layout = await layoutOf(name);
+  const rules = await readIfPresent(path.join(dir, layout.rulesFile));
   let updatedAt: string | null = null;
   try {
-    updatedAt = (await fs.stat(path.join(dir, 'index.md'))).mtime.toISOString();
+    updatedAt = (await fs.stat(path.join(dir, indexFile(layout)))).mtime.toISOString();
   } catch {
-    /* cluster exists but has never been ingested into */
+    /* the wiki exists but has never been filed into */
   }
 
   return {
     name,
     title: titleCase(name),
-    scope: firstScopeLine(schema),
-    pageCount: await countPages(name),
+    scope: scopeOf(rules, layout),
+    pageCount: (await listPages(name)).total,
     updatedAt,
+    layout: layout.id,
   };
 }
 
@@ -186,23 +197,24 @@ the top that records where it came from, when, and a checksum. They are never ed
 `;
 }
 
-async function countPages(name: string): Promise<number> {
-  let total = 0;
-  for (const sub of ['entities', 'concepts', 'comparisons', 'queries']) {
-    try {
-      const files = await fs.readdir(clusterPath(name, sub));
-      total += files.filter((f) => f.endsWith('.md')).length;
-    } catch {
-      /* a cluster need not have every directory — absence is not an error */
-    }
-  }
-  return total;
-}
+/**
+ * What the wiki is about, in a line, from its rules: the first line under
+ * "Scope" where there is one, and otherwise the first sentence that is not a
+ * heading.
+ */
+function scopeOf(rules: string | null, layout: Layout): string {
+  if (!rules) return `No ${layout.rulesFile} yet`;
+  const scope = rules.match(/##\s*Scope\s*\n+([^\n]+)/i)?.[1]?.trim();
+  if (scope) return scope;
 
-function firstScopeLine(schema: string | null): string {
-  if (!schema) return 'No SCHEMA.md yet';
-  const match = schema.match(/##\s*Scope\s*\n+([^\n]+)/i);
-  return match?.[1]?.trim() ?? 'No scope recorded';
+  const first = rules
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .find((block) => block && !/^(#|\||---|```|>|[-*]\s)/.test(block));
+  if (!first) return 'No scope recorded';
+  const line = first.replace(/\s+/g, ' ').replace(/[*_`]/g, '');
+  const sentence = line.match(/^.{20,240}?[.!?](?=\s|$)/)?.[0] ?? line;
+  return sentence.length > 240 ? `${sentence.slice(0, 237)}…` : sentence;
 }
 
 export function titleCase(slug: string): string {
@@ -213,19 +225,6 @@ export function titleCase(slug: string): string {
     .join(' ');
 }
 
-export async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.stat(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function readIfPresent(p: string): Promise<string | null> {
-  try {
-    return await fs.readFile(p, 'utf8');
-  } catch {
-    return null;
-  }
-}
+// Asked everywhere, and kept in a module of their own so that this one and
+// the one that reads the pages can use them without importing each other.
+export { exists, readIfPresent };

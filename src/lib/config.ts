@@ -88,8 +88,8 @@ export function streamLogDir(): string | null {
   return dir ? path.resolve(APP_DIR, dir) : null;
 }
 
-/** The wiki rules every run is given. Replaces the skill the previous agent carried. */
-export const WIKI_RULES_FILE = path.join(APP_DIR, 'prompts', 'llm-wiki.md');
+/** Where the wiki rules are kept that every run is given. Which file, the layout of the wiki decides. */
+export const PROMPTS_DIR = path.join(APP_DIR, 'prompts');
 
 /** Dashboard-owned state. Deliberately outside any cluster so per-cluster git
  *  history stays a clean record of what the agent changed. */

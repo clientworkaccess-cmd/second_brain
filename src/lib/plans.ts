@@ -2,7 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError, PLANS_DIR } from './config';
 import { ensureDashboardDirs, readIfPresent } from './clusters';
-import { PAGE_DIRS, type PageDir, type Snapshot } from './wiki';
+import { inPages, layoutOf, type Layout } from './layout';
+import type { Snapshot } from './wiki';
 
 /**
  * The proposed ingest — what the agent understood, before anything is written.
@@ -15,23 +16,15 @@ import { PAGE_DIRS, type PageDir, type Snapshot } from './wiki';
  * the document was understood, and a list of file paths does not ask that
  * question.
  *
- * The agent therefore never supplies a path. `dirFor`/`slugFor` below derive
- * one from the kind and the name, here, in the dashboard. That keeps naming
+ * The agent therefore never supplies a path. `pathFor` below derives one from
+ * the kind and the name, here, in the app, by the layout of the wiki. That keeps naming
  * consistent when the agent is sloppy, and means a malformed plan cannot steer
  * a write outside the cluster — clusterPath() would refuse it, but the better
  * version is that no agent-supplied path ever reaches it.
  */
 
-export type ItemKind = 'entity' | 'concept' | 'comparison' | 'query';
-
-const KIND_TO_DIR: Record<ItemKind, PageDir> = {
-  entity: 'entities',
-  concept: 'concepts',
-  comparison: 'comparisons',
-  query: 'queries',
-};
-
-const KINDS = Object.keys(KIND_TO_DIR) as ItemKind[];
+/** One of the page types of the wiki's layout: 'entity', 'concept', and so on. */
+export type ItemKind = string;
 
 export interface PlanPage {
   kind: ItemKind;
@@ -109,8 +102,11 @@ export function basisIsStale(basis: Basis, now: Snapshot): boolean {
   return false;
 }
 
-export function dirFor(kind: ItemKind): PageDir {
-  return KIND_TO_DIR[kind];
+/** The folder a kind of page is filed in, from the folder the pages are in. */
+export function dirFor(kind: ItemKind, layout: Layout): string {
+  const type = layout.types.find((t) => t.type === kind);
+  if (!type) throw new HttpError(422, `This wiki has no pages of the kind "${kind}"`);
+  return type.dir;
 }
 
 /**
@@ -125,9 +121,14 @@ export function slugFor(name: string): string {
     .slice(0, 80);
 }
 
-/** The path this page will be written to, relative to the cluster. */
-export function pathFor(page: PlanPage): string {
-  return `${dirFor(page.kind)}/${slugFor(page.name)}.md`;
+/** The path this page will be written to, from the wiki's folder. */
+export function pathFor(page: PlanPage, layout: Layout): string {
+  return inPages(layout, dirFor(page.kind, layout), `${slugFor(page.name)}.md`);
+}
+
+/** What a link to this page is written as: its name, or in a wiki that links by file name, that. */
+export function linkFor(name: string, layout: Layout): string {
+  return layout.links === 'slug' ? slugFor(name) : name;
 }
 
 export function planPath(jobId: string): string {
@@ -153,7 +154,8 @@ export async function readPlan(jobId: string): Promise<Plan | null> {
     return null;
   }
   try {
-    return validatePlan(parsed);
+    const cluster = isObject(parsed) ? str(parsed.cluster) : '';
+    return validatePlan(parsed, await layoutOf(cluster));
   } catch {
     return null;
   }
@@ -175,20 +177,21 @@ export async function deletePlan(jobId: string): Promise<void> {
  * agent that omits the key rather than sending `[]` should not fail the ingest.
  * Strict about shape: anything that survives here is safe to act on.
  */
-export function validatePlan(input: unknown): Plan {
+export function validatePlan(input: unknown, layout: Layout): Plan {
   const o = asObject(input, 'plan');
+  const kinds = layout.types.map((t) => t.type);
 
   const pages = asArray(o.pages, 'pages').map((raw, i) => {
     const p = asObject(raw, `pages[${i}]`);
     const kind = String(p.kind ?? '').toLowerCase();
-    if (!KINDS.includes(kind as ItemKind)) {
-      throw new HttpError(422, `pages[${i}].kind must be one of ${KINDS.join(', ')}`);
+    if (!kinds.includes(kind)) {
+      throw new HttpError(422, `pages[${i}].kind must be one of ${kinds.join(', ')}`);
     }
     const name = str(p.name).trim();
     if (!name) throw new HttpError(422, `pages[${i}].name is empty`);
     if (!slugFor(name)) throw new HttpError(422, `pages[${i}].name has no usable characters`);
     return {
-      kind: kind as ItemKind,
+      kind,
       name,
       summary: str(p.summary).trim(),
       quote: str(p.quote).trim(),
@@ -280,11 +283,11 @@ export function planTotals(plan: Plan): { newPages: number; updatedPages: number
 }
 
 /** Every distinct file this plan would touch. Used for the execution prompt. */
-export function targets(plan: Plan): { page: PlanPage; path: string }[] {
+export function targets(plan: Plan, layout: Layout): { page: PlanPage; path: string }[] {
   const seen = new Set<string>();
   const out: { page: PlanPage; path: string }[] = [];
   for (const page of plan.pages) {
-    const p = pathFor(page);
+    const p = pathFor(page, layout);
     if (seen.has(p)) continue;
     seen.add(p);
     out.push({ page, path: p });
@@ -311,4 +314,3 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v);
 }
 
-export { PAGE_DIRS };

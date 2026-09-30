@@ -7,9 +7,11 @@ an answer with the pages it came from.
 Next.js, one process. The agent is Claude Code, started as a child process and
 signed in with the team's Claude subscription. There is no API key anywhere.
 
-**Where this stands.** Stage 1 of 3: everything the older dashboard did, on
-Claude Code instead of Hermes. The real wiki's structure (Stage 2) and the
-Second Brain editor and graph (Stage 3) are not in here yet.
+**Where this stands.** Stage 1 of 3, everything the older dashboard did on
+Claude Code instead of Hermes, is done. Of Stage 2, the real wiki's structure,
+the layout is in: a wiki kept by hand with Claude Code can be brought in as it
+is (see "Two layouts"). Its facets, and the Second Brain editor and graph
+(Stage 3), are not in here yet.
 
 It looks and is laid out like the Second Brain desktop app, on purpose:
 [`DESIGN.md`](DESIGN.md). What the app assumes about the Claude binary, and what
@@ -57,6 +59,7 @@ npm run build && npm run serve
 | `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, and a planner that misbehaves |
 | `npm run check:lint` | The check that runs after every filing |
 | `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
+| `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the command line, and that 350 pages are read once |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
 | `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
@@ -182,6 +185,43 @@ failure. Repeat step 4, then upload the document again.
 
 ---
 
+## Two layouts
+
+A wiki is a folder under `WIKI_ROOT`. There is no list of them anywhere: the
+app reads the folders. Two layouts are recognised, from what is in the folder.
+
+| | A cluster | A brain |
+|---|---|---|
+| Made by | this app, from the interview on the "New cluster" page | a person and their own Claude Code, before it came here |
+| Told apart by | `index.md` at the top | `wiki/index.md` |
+| The rules | `SCHEMA.md` | `CLAUDE.md` |
+| The pages | `entities/`, `concepts/`, `comparisons/`, `queries/` beside the rules | `wiki/sources/`, `entities/`, `concepts/`, `synthesis/`, plus `overview.md` and `businesses.md` beside the index |
+| Links | by name: `[[Mark Chen]]` | by file name: `[[mark-chen]]` |
+| Sources | `raw/`, under the name they were uploaded by | `raw/`, under the day they were filed: `2026-09-22-q3-board-pack.md`, with the uploaded file beside it |
+| A page for each source | no | yes, in `wiki/sources/` |
+| The rules the agent is given | `prompts/llm-wiki.md` | `prompts/brain-wiki.md`, which defers to the folder's own `CLAUDE.md` |
+| What the agent may write | anything in the folder but the rules and the sources | `wiki/` and nothing else |
+| Committed after a filing | the folder | `wiki/`, `raw/` and `CLAUDE.md`, and nothing else in the folder |
+
+A folder of pages that neither layout names is shown all the same. Everything
+that knows one layout from the other is in `src/lib/layout.ts`.
+
+**Bringing a brain in.** Copy the folder into `WIKI_ROOT` under a name in
+lower case, digits and hyphens (`northwind-brain`, not `Northwind-Brain`), owned by
+the service user. It appears on the front page at once. The first filing into
+it makes it a git repository, with a commit of what it held before, so that
+every filing can be undone. Leave out anything in the folder that does not
+belong to the wiki: the agent can read the whole folder, and a working copy of
+a mailbox is not something to hand it.
+
+To try the app with a brain of real size without one:
+
+```bash
+npm run gen-brain -- .wiki-dev/northwind --pages 350 --links 10
+```
+
+Everything in it is made up.
+
 ## How it fits together
 
 ```
@@ -196,10 +236,10 @@ claude                working directory: /var/brain-data/<cluster>
 /var/brain-data/<cluster>/
 ```
 
-**Who writes what.** The app creates the cluster directory, `SCHEMA.md`, the
-empty `index.md` and `log.md`, a git repository per cluster, and everything
-under `.dashboard/`. The agent writes every page and keeps `index.md` and
-`log.md` current. The app never writes a wiki page.
+**Who writes what.** The app creates a cluster's directory, `SCHEMA.md`, the
+empty `index.md` and `log.md`, a git repository per wiki, and everything
+under `.dashboard/`. The agent writes every page and keeps the index and the
+log current. The app never writes a wiki page.
 
 **What is reachable without signing in.** The login page, its endpoint, the
 favicon and the hashed build output under `/_next/static/`. Nothing else. The

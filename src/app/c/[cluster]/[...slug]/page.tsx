@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { FileText } from 'lucide-react';
 import { HttpError } from '@/lib/config';
 import { outlineOf, wordCount } from '@/lib/outline';
-import { backlinksOf, readPage, titleIndex } from '@/lib/wiki';
+import { backlinksOf, linkIndex, readPage } from '@/lib/wiki';
+import { pageHref, resolveLink } from '@/lib/wikilinks';
 import { Center } from '@/components/frame/Frame';
 import { RightSidebar } from '@/components/frame/RightSidebar';
 import { StatusItems } from '@/components/frame/controls';
@@ -21,15 +22,15 @@ export default async function WikiPage({
 
   let page;
   try {
-    page = await readPage(cluster, slug.join('/'));
+    page = await readPage(cluster, slug.map((part) => decodeURIComponent(part)).join('/'));
   } catch (err) {
     if (err instanceof HttpError) notFound();
     throw err;
   }
 
-  const [titles, backlinks] = await Promise.all([titleIndex(cluster), backlinksOf(cluster, page.slug)]);
+  const [titles, backlinks] = await Promise.all([linkIndex(cluster), backlinksOf(cluster, page.slug)]);
   const outline = outlineOf(page.body);
-  const href = `/c/${cluster}/${page.slug}`;
+  const href = pageHref(cluster, page.slug);
 
   return (
     <>
@@ -52,7 +53,7 @@ export default async function WikiPage({
                 <div className="backlinks">
                   {backlinks.map((link) => (
                     <div key={link.slug} className="backlink-group">
-                      <Link className="backlink-source" href={`/c/${cluster}/${link.slug}`}>
+                      <Link className="backlink-source" href={pageHref(cluster, link.slug)}>
                         <FileText size={14} className="flex-none text-faint" />
                         <span>{link.title}</span>
                       </Link>
@@ -92,9 +93,9 @@ export default async function WikiPage({
               ) : (
                 <nav className="outline-list" aria-label="Links from this page">
                   {page.links.map((link) => {
-                    const target = titles.get(link.toLowerCase());
+                    const target = resolveLink(titles, link);
                     return target ? (
-                      <Link key={link} className="outline-item" href={`/c/${cluster}/${target}`}>
+                      <Link key={link} className="outline-item" href={pageHref(cluster, target)}>
                         {link}
                       </Link>
                     ) : (

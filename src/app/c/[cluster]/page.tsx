@@ -1,7 +1,7 @@
 import { FileQuestion } from 'lucide-react';
 import { describeCluster } from '@/lib/clusters';
 import { outlineOf } from '@/lib/outline';
-import { readIndex, readLog, titleIndex, listPages, splitPage, PAGE_DIRS } from '@/lib/wiki';
+import { readIndex, readLog, linkIndex, listPages, splitPage } from '@/lib/wiki';
 import { Center } from '@/components/frame/Frame';
 import { RightSidebar } from '@/components/frame/RightSidebar';
 import { UploadPanel } from '@/components/UploadPanel';
@@ -10,18 +10,18 @@ import { EmptyState } from '@/components/ui';
 
 export const dynamic = 'force-dynamic';
 
-/** The cluster's front page: add a document, then the agent's own index.md. */
+/** The wiki's front page: add a document, then the agent's own index. */
 export default async function ClusterIndex({ params }: { params: Promise<{ cluster: string }> }) {
   const { cluster } = await params;
-  const [meta, index, log, titles, pages] = await Promise.all([
+  const [meta, index, log, titles, listing] = await Promise.all([
     describeCluster(cluster),
     readIndex(cluster),
     readLog(cluster, 12),
-    titleIndex(cluster),
+    linkIndex(cluster),
     listPages(cluster),
   ]);
 
-  const pageCount = PAGE_DIRS.reduce((n, dir) => n + pages[dir].length, 0);
+  const pageCount = listing.total;
   const body = index ? splitPage(index).content : null;
 
   return (
@@ -46,7 +46,7 @@ export default async function ClusterIndex({ params }: { params: Promise<{ clust
             <MarkdownView source={body} cluster={cluster} titles={titles} outline={outlineOf(body)} />
           </article>
         ) : (
-          <p className="content text-body text-muted">The agent has written pages but no index.md yet.</p>
+          <p className="content text-body text-muted">The agent has written pages but no index yet.</p>
         )}
       </Center>
 
@@ -89,10 +89,10 @@ export default async function ClusterIndex({ params }: { params: Promise<{ clust
                 <p className="mt-1.5 text-ui text-muted">{meta.scope}</p>
                 <table className="mt-3 text-ui">
                   <tbody>
-                    {PAGE_DIRS.map((dir) => (
-                      <tr key={dir}>
-                        <th className="pr-3 text-left font-medium capitalize text-muted">{dir}</th>
-                        <td className="tabular-nums text-ink">{pages[dir].length}</td>
+                    {listing.folders.map((folder) => (
+                      <tr key={folder.dir}>
+                        <th className="pr-3 text-left font-medium text-muted">{folder.label}</th>
+                        <td className="tabular-nums text-ink">{folder.pages.length}</td>
                       </tr>
                     ))}
                   </tbody>

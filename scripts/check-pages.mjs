@@ -22,7 +22,7 @@ process.env.WIKI_ROOT = wikiRoot;
 await compileLib();
 const lib = (name) => pathToFileURL(path.join(OUT_DIR, `${name}.js`)).href;
 const { splitPage, propertiesOf } = await import(lib('frontmatter'));
-const { listPages, readPage, titleIndex } = await import(lib('wiki'));
+const { listPages, readPage, linkIndex } = await import(lib('wiki'));
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -58,13 +58,13 @@ await fs.writeFile(path.join(dir, 'entities', 'none.md'), '# No Block\n\nText.\n
 
 try {
   // ------------------------------------------------ through the app's own functions
-  const listed = await listPages(cluster);
+  const listed = (await listPages(cluster)).folders.find((folder) => folder.dir === 'entities')?.pages ?? [];
   const expected = NAMED.length + 7;
-  check('every page is listed, whatever is at its top', listed.entities.length === expected, `${listed.entities.length} of ${expected}`);
-  await titleIndex(cluster);
+  check('every page is listed, whatever is at its top', listed.length === expected, `${listed.length} of ${expected}`);
+  await linkIndex(cluster);
 
   const opened = [];
-  for (const ref of listed.entities) opened.push(await readPage(cluster, ref.slug));
+  for (const ref of listed) opened.push(await readPage(cluster, ref.slug));
   check('every page opens', opened.length === expected);
   check('nothing at the top of a page was run', !(await ran()));
 
@@ -76,7 +76,9 @@ try {
   );
 
   const plain = opened.find((page) => page.slug === 'entities/plain');
-  check('a YAML block is read and left out of the text', plain?.title === 'Plain Page' && !plain.body.includes('created:'), plain?.body.slice(0, 40));
+  check('a YAML block is read and left out of the text', plain?.title === 'Plain' && !plain.body.includes('created:'), `${plain?.title}: ${plain?.body.slice(0, 40)}`);
+  const none = opened.find((page) => page.slug === 'entities/none');
+  check('a page without a title in its block is called by its heading', none?.title === 'No Block', none?.title);
 
   // ------------------------------------------------------------ the block itself
   check('YAML is read', splitPage('---\ntitle: A\ntags: [x, y]\n---\nText').data.title === 'A');

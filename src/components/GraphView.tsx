@@ -31,23 +31,20 @@ interface Link {
   target: Node;
 }
 
-const LABELS: Record<GraphNode['kind'], string> = {
-  entities: 'Entities',
-  concepts: 'Concepts',
-  comparisons: 'Comparisons',
-  queries: 'Saved answers',
-  missing: 'unresolved',
-};
-
 /**
  * One hue per folder, spread by the golden angle over the folder names in
  * alphabetical order. This is the desktop app's rule (core/graph.ts there), so
  * the same wiki gets the same kind of colours in both.
  */
-function folderHues(kinds: GraphNode['kind'][]): Map<string, number> {
+function folderHues(kinds: string[]): Map<string, number> {
   const sorted = [...new Set(kinds)].filter((k) => k !== 'missing').sort((a, b) => a.localeCompare(b));
   return new Map(sorted.map((kind, i) => [kind, (i * 137.508) % 360]));
 }
+
+/** Up to this many pages, every one is labelled. */
+const LABEL_ALL_UP_TO = 120;
+/** Past that, the pages with the most links keep their labels. */
+const LABELLED_HUBS = 30;
 
 const colourOf = (hue: number | undefined): string =>
   hue === undefined ? 'var(--text-faint)' : `hsl(${Math.round(hue)} 62% var(--graph-lightness))`;
@@ -147,6 +144,20 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
     return set;
   }, [hovered, links]);
 
+  // Past a certain size every label is noise. Then only the hubs keep theirs,
+  // and whatever is under the pointer with its neighbours.
+  const labelled = useMemo(() => {
+    if (nodes.length <= LABEL_ALL_UP_TO) return null;
+    return new Set(
+      [...nodes]
+        .sort((a, b) => b.degree - a.degree)
+        .slice(0, LABELLED_HUBS)
+        .map((n) => n.id),
+    );
+  }, [nodes]);
+  const showsLabel = (node: Node): boolean =>
+    labelled === null || labelled.has(node.id) || (neighbours?.has(node.id) ?? false);
+
   const written = graph.nodes.filter((n) => n.kind !== 'missing').length;
 
   return (
@@ -221,20 +232,22 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
                       stroke={hovered === node.id ? 'var(--accent)' : 'none'}
                       strokeWidth={2}
                     />
-                    <text
-                      y={r + 14}
-                      textAnchor="middle"
-                      fontSize={11}
-                      style={{
-                        pointerEvents: 'none',
-                        fill: hovered === node.id ? 'var(--text-normal)' : 'var(--text-muted)',
-                        paintOrder: 'stroke',
-                        stroke: 'var(--bg-primary)',
-                        strokeWidth: 3,
-                      }}
-                    >
-                      {node.label.length > 22 ? node.label.slice(0, 21) + '…' : node.label}
-                    </text>
+                    {showsLabel(node) && (
+                      <text
+                        y={r + 14}
+                        textAnchor="middle"
+                        fontSize={11}
+                        style={{
+                          pointerEvents: 'none',
+                          fill: hovered === node.id ? 'var(--text-normal)' : 'var(--text-muted)',
+                          paintOrder: 'stroke',
+                          stroke: 'var(--bg-primary)',
+                          strokeWidth: 3,
+                        }}
+                      >
+                        {node.label.length > 22 ? node.label.slice(0, 21) + '…' : node.label}
+                      </text>
+                    )}
                   </g>
                 );
               })}
@@ -242,17 +255,19 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
           </svg>
 
           <div className="graph-legend">
-            {[...hues.entries()].map(([kind, hue]) => (
-              <div key={kind} className="graph-legend-row">
-                <span className="graph-legend-swatch" style={{ background: colourOf(hue) }} />
-                <span>{LABELS[kind as GraphNode['kind']]}</span>
-                <span className="graph-legend-count">{counts.get(kind) ?? 0}</span>
-              </div>
-            ))}
+            {graph.kinds
+              .filter(({ kind }) => hues.has(kind))
+              .map(({ kind, label }) => (
+                <div key={kind} className="graph-legend-row">
+                  <span className="graph-legend-swatch" style={{ background: colourOf(hues.get(kind)) }} />
+                  <span>{label}</span>
+                  <span className="graph-legend-count">{counts.get(kind) ?? 0}</span>
+                </div>
+              ))}
             {counts.has('missing') && (
               <div className="graph-legend-row" title="Links to pages that do not exist yet">
                 <span className="graph-legend-swatch unresolved" />
-                <span>{LABELS.missing}</span>
+                <span>Not written yet</span>
                 <span className="graph-legend-count">{counts.get('missing')}</span>
               </div>
             )}
