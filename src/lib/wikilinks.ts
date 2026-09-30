@@ -38,7 +38,7 @@ export function resolveLink(known: Map<string, string>, target: string): string 
 }
 
 /** Apply `change` to everything that is not code. */
-function outsideCode(text: string, change: (prose: string) => string): string {
+export function outsideCode(text: string, change: (prose: string) => string): string {
   let fence: string | null = null;
   return text
     .split('\n')

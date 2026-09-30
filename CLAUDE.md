@@ -20,7 +20,7 @@ runs, which loads no settings or instruction files from anywhere.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
 - `npm run check` — stream, auth, pipeline, lint, page, layout, facet,
-  design and asset checks, all against the stand-in. `npm run typecheck` — tsc.
+  design, asset and rename checks, all against the stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
 - `npm run check:real` — the app's exact command line against the real binary.
@@ -121,7 +121,10 @@ it was read. `src/lib/assetPaths.ts` is how `![[photo.png]]` finds its file
 (pure; the reading view, the editor and the server share it), `src/lib/assets.ts`
 lists, reads and adds images, `GET/POST /api/asset` serves and takes them,
 and `src/editor/imagePaste.ts` turns a paste or a drop into an upload and an
-embed.
+embed. `src/lib/rename.ts` renames a page (title, file name, every link to
+it, the index) and deletes one (its index line too), each with a restore
+point; `POST /api/page/rename` and `DELETE /api/page` are the routes, and
+`PageActions.tsx` the two buttons in the status bar.
 
 ## The graph
 

@@ -4,6 +4,7 @@ import { HttpError, assertClusterName, clusterPath } from '@/lib/config';
 import { exists } from '@/lib/clusters';
 import { SESSION_COOKIE } from '@/lib/env-auth';
 import { PageMovedOn, readPageSource, writePageSource } from '@/lib/pages';
+import { deletePage } from '@/lib/rename';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,7 +14,8 @@ export const runtime = 'nodejs';
  *
  * A PUT carries the version it read. A page that changed on disk since then
  * is refused with 409 and what it holds now, so the writer can decide. `force`
- * overrides that; `commit` makes a restore point afterwards.
+ * overrides that; `commit` makes a restore point afterwards. DELETE takes the
+ * page out, and its line out of the index, after a restore point.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -43,6 +45,18 @@ export async function PUT(req: NextRequest) {
     if (err instanceof PageMovedOn) {
       return NextResponse.json({ error: err.message, version: err.version, text: err.text }, { status: 409 });
     }
+    return fail(err);
+  }
+}
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const cluster = await named(body.cluster);
+    const result = await deletePage(cluster, String(body.slug ?? ''));
+    await audit({ event: 'page-deleted', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${cluster}: ${result.slug} (${result.backlinks} backlinks)` });
+    return NextResponse.json(result);
+  } catch (err) {
     return fail(err);
   }
 }

@@ -11,6 +11,7 @@ import { Center } from '@/components/frame/Frame';
 import { RightSidebar } from '@/components/frame/RightSidebar';
 import { StatusItems } from '@/components/frame/controls';
 import { MarkdownView } from '@/components/MarkdownView';
+import { PageActions } from '@/components/PageActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,6 +130,7 @@ export default async function WikiPage({
           <PenLine size={12} />
           Edit
         </Link>
+        <PageActions cluster={cluster} slug={page.slug} title={page.title} backlinks={backlinks.length} />
       </StatusItems>
     </>
   );
