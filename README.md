@@ -10,8 +10,8 @@ signed in with the team's Claude subscription. There is no API key anywhere.
 **Where this stands.** Stage 1 of 3, everything the older dashboard did on
 Claude Code instead of Hermes, is done. Stage 2, the real wiki's structure, is
 in: a wiki kept by hand with Claude Code can be brought in as it is, and its
-facets are read, checked and used (see "Two layouts"). The Second Brain editor
-and graph (Stage 3) are not in here yet.
+facets are read, checked and used (see "Two layouts"). Of Stage 3, the desktop
+app's editor is in; its WebGL graph is not yet.
 
 It looks and is laid out like the Second Brain desktop app, on purpose:
 [`DESIGN.md`](DESIGN.md). What the app assumes about the Claude binary, and what
@@ -62,7 +62,7 @@ npm run build && npm run serve
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
 | `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
-| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, the editor's reads and writes, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |
 
@@ -268,6 +268,15 @@ carried out as soon as it is made. An automatic filing reports what it wrote,
 and any filing can be undone: the commit that captured it is reverted, pages
 and source together, in a commit of its own. A filing that a later one built
 on cannot be undone on its own; undo the later one first.
+
+**A page can be edited by hand.** "Edit" in the status bar opens the page in
+the desktop app's editor: live preview, the same formatting commands, `[[`
+completion. What is typed is saved on its own a moment after the typing stops.
+A page that changed on disk since it was opened is not overwritten: the
+writer is told and chooses. "Done" saves, makes a restore point, and goes
+back to reading. A new page starts from the page tree, with the block the
+rules ask for already in it. Only pages can be written this way: not the
+rules, not the sources, nothing outside the pages.
 
 **Every filing is on record.** The Filings panel on a wiki's front page lists
 them, newest first, with what became of each: filed, needing attention,
