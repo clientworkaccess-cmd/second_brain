@@ -43,7 +43,7 @@ const check = (name, pass, detail = '') => {
 const PROTECTED = [
   '/', '/new', '/c/ops', '/c/ops/graph', '/c/ops/ask', '/c/ops/entities/warehouse-team',
   '/api/clusters', '/api/upload', '/api/chat', '/api/jobs/abc', '/api/pipeline/plan', '/api/pipeline/execute',
-  '/api/pipeline/reject', '/api/auth/logout', '/api/search',
+  '/api/pipeline/reject', '/api/pipeline/undo', '/api/auth/logout', '/api/search', '/api/clusters/settings',
   // A dot in a path says nothing about what the path is.
   '/api/clusters.json', '/api/x.json', '/c/a.b', '/c/ops/entities/page.md', '/new.html', '/.env', '/api/auth/login.php',
   // Near misses of the public paths.

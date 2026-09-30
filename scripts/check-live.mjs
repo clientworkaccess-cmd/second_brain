@@ -279,6 +279,14 @@ try {
   check('the answer names its sources', /^SOURCES: \[\[/m.test(answer), answer.trim().split('\n').pop() ?? '');
   check('the answer says what was read', chat.list.some((e) => e.name === 'activity' && e.data.text === 'Reading index.md'));
   check('the answer ends cleanly', chat.list.at(-1)?.name === 'end', chat.list.at(-1)?.name ?? 'nothing');
+  const conversationId = chat.list.find((e) => e.name === 'session')?.data.id ?? '';
+  check('the answer names the conversation it starts', /^[0-9a-f-]{36}$/.test(conversationId), conversationId);
+  const next = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And who logs it?', conversation: conversationId }), cookie));
+  const nextAnswer = next.list.filter((e) => e.name === 'token').map((e) => e.data.text).join('');
+  check('the next question builds on the last', nextAnswer.includes('Earlier you asked: "What is this cluster about?"') && next.list.find((e) => e.name === 'session')?.data.id === conversationId, nextAnswer.split('\n')[0]);
+  const gone = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Still there?', conversation: '11111111-2222-4333-8444-555555555555' }), cookie));
+  const goneSessions = gone.list.filter((e) => e.name === 'session').map((e) => e.data.id);
+  check('a conversation that is no longer there is started afresh', gone.list.some((e) => e.name === 'activity' && /no longer there/.test(e.data.text)) && gone.list.at(-1)?.name === 'end' && goneSessions.length === 2 && goneSessions[1] !== goneSessions[0], goneSessions.join(' > '));
   const nowhere = await fetch(`${base}/api/chat`, withCookie(json({ cluster: '../operations', question: 'x' }), cookie));
   check('a cluster name cannot climb out of the wiki', nowhere.status === 400, String(nowhere.status));
 

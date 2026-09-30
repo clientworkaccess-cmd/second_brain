@@ -56,7 +56,7 @@ npm run build && npm run serve
 | `npm run check` | The six below, in order |
 | `npm run check:stream` | The stream parser, against streams captured from the real binary and against the stand-in |
 | `npm run check:auth` | What gets through without a session, what counts as a session, the password, the throttle |
-| `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, and a planner that misbehaves |
+| `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, a planner that misbehaves, a wiki that files at once, and the undo |
 | `npm run check:lint` | The check that runs after every filing |
 | `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the command line, and that 350 pages are read once |
@@ -261,6 +261,18 @@ image optimizer is switched off and behind the login as well.
 
 **Transports.** JSON for anything that finishes in milliseconds. Server-sent
 events for filing progress and chat.
+
+**Filing waits for approval, unless a person decides otherwise.** Per wiki,
+in the About panel: every plan is shown first (the default), or a plan is
+carried out as soon as it is made. An automatic filing reports what it wrote,
+and any filing can be undone: the commit that captured it is reverted, pages
+and source together, in a commit of its own. A filing that a later one built
+on cannot be undone on its own; undo the later one first.
+
+**A question can follow the last.** The chat keeps one conversation per wiki
+for as long as the browser tab is: the agent resumes the session it kept and
+remembers what was asked. "New conversation" starts afresh. A conversation the
+binary no longer has is started again, and the reader is told.
 
 **Filing outlives its request.** `POST /api/upload` returns a job id as soon as
 the file is on disk. A refresh, a navigation or a proxy timeout cannot stop a

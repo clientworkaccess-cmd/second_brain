@@ -24,10 +24,17 @@
  *                              (in a brain) the settings a person keeps in the folder, or write a
  *                              page whose block breaks the rules
  *   --fail auth|limit          end the way the real binary does when signed out or out of usage
+ *
+ * A conversation is kept the way the real binary keeps one: `--session-id X`
+ * starts it and `--resume X` continues it, from a file under Claude's folder
+ * (or the temp folder when there is none). A resumed answer says what was
+ * asked before; resuming a conversation that is not there fails as the real
+ * binary does, with a word on stderr and no result.
  */
 
 import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -41,8 +48,24 @@ const SKIP = new Set(valueOf('--skip').split(',').map((s) => s.trim()).filter(Bo
 const TOUCH = new Set(valueOf('--touch').split(',').map((s) => s.trim()).filter(Boolean));
 const FAIL = valueOf('--fail');
 const TOOLS = valueOf('--tools').split(',').map((s) => s.trim()).filter(Boolean);
-const SESSION = randomUUID();
+const RESUMED = valueOf('--resume');
+const SESSION = RESUMED || valueOf('--session-id') || randomUUID();
 const started = Date.now();
+
+// Where a conversation is kept between runs.
+const SESSIONS = path.join(process.env.CLAUDE_CONFIG_DIR || os.tmpdir(), 'fake-claude-sessions');
+const sessionFile = path.join(SESSIONS, `${SESSION.replace(/[^a-z0-9-]/gi, '')}.json`);
+const KEPT = argv.includes('--no-session-persistence') ? null : sessionFile;
+/** What was asked before in this conversation. Fails the run when a resumed conversation is not there. */
+async function earlier() {
+  if (!RESUMED) return [];
+  try {
+    return JSON.parse(await fs.readFile(sessionFile, 'utf8')).questions ?? [];
+  } catch {
+    process.stderr.write(`No conversation found with session ID: ${RESUMED}\n`);
+    process.exit(1);
+  }
+}
 
 // The two layouts a wiki can have (src/lib/layout.ts), told apart the way the
 // app tells them apart: by where the index is.
@@ -646,6 +669,12 @@ ${label} (filed ${new Date().toISOString()})
  * any other, which is every cluster a person actually creates.
  */
 async function answer() {
+  const before = await earlier();
+  const question = prompt.match(/using only the wiki in your working directory: "([^"]*)"/)?.[1] ?? prompt.split('\n')[0];
+  if (KEPT) {
+    await fs.mkdir(SESSIONS, { recursive: true });
+    await fs.writeFile(sessionFile, JSON.stringify({ questions: [...before, question] }));
+  }
   await use('Read', { file_path: at(INDEX) }, 200);
   const index = await fs.readFile(at(INDEX), 'utf8').catch(() => '');
   const entries = [...index.matchAll(/^\s*[-*]\s*\[\[([^\]|]+)(?:\|[^\]]+)?\]\]\s*(?:[:—–-]\s*)?(.*)$/gm)]
@@ -661,6 +690,7 @@ async function answer() {
   for (const entry of entries.slice(0, 3)) await use('Grep', { pattern: entry.name }, 120);
 
   const lines = [
+    ...(before.length ? [`Earlier you asked: "${before[before.length - 1]}". Building on that.`, ``] : []),
     `${entries.length === 1 ? 'One page in this wiki bears' : `${entries.length} pages in this wiki bear`} on that.`,
     ``,
     ...entries.map((entry) => `- **${entry.name}**: ${entry.summary || 'see the page'}. See [[${entry.name}]].`),
