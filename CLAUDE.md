@@ -108,6 +108,16 @@ store. `src/lib/pages.ts` is the one place the app writes a page: a `.md`
 file among the pages and nothing else, refused when the file moved on since
 it was read.
 
+## The graph
+
+`src/graph/webglGraph.ts` is the desktop app's engine as it is, and
+`src/graph/data.ts` the parts of its `core/graph.ts` the engine draws from
+(hues, area order, anchors). Keep both in step with the desktop app.
+`src/components/GraphView.tsx` is this app's: it turns `lib/graph.ts` into
+what the engine takes, and owns the header and the legend. Nothing about the
+graph is checked from Node; the engine needs WebGL. Look at it in the browser
+on a generated brain of 350 pages.
+
 ## Where things are
 
 `src/lib/claude.ts` builds the command and runs it, by layout, and for a
