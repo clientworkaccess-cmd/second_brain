@@ -10,8 +10,8 @@ signed in with the team's Claude subscription. There is no API key anywhere.
 **Where this stands.** Stage 1 of 3, everything the older dashboard did on
 Claude Code instead of Hermes, is done. Stage 2, the real wiki's structure, is
 in: a wiki kept by hand with Claude Code can be brought in as it is, and its
-facets are read, checked and used (see "Two layouts"). Of Stage 3, the desktop
-app's editor is in; its WebGL graph is not yet.
+facets are read, checked and used (see "Two layouts"). Stage 3, the desktop app's
+editor and its WebGL graph, is in.
 
 It looks and is laid out like the Second Brain desktop app, on purpose:
 [`DESIGN.md`](DESIGN.md). What the app assumes about the Claude binary, and what

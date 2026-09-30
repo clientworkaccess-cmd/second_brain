@@ -100,18 +100,20 @@ class names that collide.
 
 ## The graph
 
+The desktop app's WebGL engine draws it here too (`src/graph/webglGraph.ts`,
+that app's file as it is): links are one draw call and nodes another, so a
+wiki of thousands of links draws at full speed, and the colours, the pies,
+the labels and the regions are the same in both apps.
+
 One colour per folder: the hues are spread by the golden angle over the folder
-names in alphabetical order, at 62% saturation, lighter on dark. That is the
-desktop app's rule, so the same wiki gets the same kind of colours in both.
-A link to a page that does not exist is drawn faint and dashed. Past 120
-pages only the thirty best-connected keep their labels, and whatever is under
-the pointer with its neighbours.
+names in alphabetical order, at 62% saturation, lighter on dark. A link to a
+page that does not exist is drawn faint. Labels are drawn for whatever is
+under the pointer with its neighbours, for a highlighted value, and for
+everything once zoomed in.
 
 Where the wiki has facets, the header offers to group by them instead of by
 folder, as the desktop app's area view does: one colour per value, a page with
-several drawn as a pie, each value pulling its pages toward a place of its own,
-a link across values holding less. A row of the legend narrows the graph to
-one value; Escape widens it again. The choice is remembered per wiki.
-
-The desktop app draws with WebGL, because a vault reaches thousands of links.
-This app draws SVG, because a cluster reaches tens to low hundreds of pages.
+several drawn as a pie, each value gathering its pages around a place of its
+own with a soft disc and its name behind them. A row of the legend highlights
+one value and dims the rest; Escape widens it again. The choice is remembered
+per wiki.

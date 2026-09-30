@@ -668,14 +668,15 @@
     overflow: hidden;
     background: var(--bg-primary);
   }
-  .graph-host svg {
+  .graph-host canvas {
     position: absolute;
     inset: 0;
     display: block;
-    width: 100%;
-    height: 100%;
     touch-action: none;
     user-select: none;
+  }
+  .graph-host .graph-labels {
+    pointer-events: none;
   }
   .graph-legend {
     position: absolute;
@@ -706,11 +707,44 @@
     background: var(--text-faint);
     opacity: 0.55;
   }
+  .graph-legend-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 180px;
+  }
   .graph-legend-count {
     margin-left: auto;
     padding-left: 12px;
     color: var(--text-faint);
     font-variant-numeric: tabular-nums;
+  }
+  /* Grouped by a facet: the rows are buttons that highlight one value. */
+  .graph-legend.interactive {
+    padding: 6px 4px;
+    pointer-events: auto;
+  }
+  .graph-legend.interactive .graph-legend-row {
+    padding: 0 6px;
+    border-radius: var(--radius);
+  }
+  button.graph-legend-row {
+    width: 100%;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    cursor: pointer;
+  }
+  button.graph-legend-row:hover {
+    background: color-mix(in srgb, var(--text-normal) 8%, transparent);
+  }
+  .graph-legend-row.active {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .graph-legend-row.muted-row {
+    opacity: 0.45;
   }
   .graph-toggle {
     display: inline-flex;
@@ -732,17 +766,6 @@
   .graph-toggle.active {
     color: var(--accent);
     border-color: var(--accent);
-  }
-  .graph-legend-row.clickable {
-    cursor: pointer;
-  }
-  .graph-legend-row.clickable:hover,
-  .graph-legend-row.focused {
-    color: var(--text-normal);
-  }
-  .graph-legend-row.focused .graph-legend-swatch {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
   }
 
   /* ---- The editor: the desktop app's editor.css, carried over ---- */
