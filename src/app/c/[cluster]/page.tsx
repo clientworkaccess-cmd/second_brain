@@ -1,5 +1,7 @@
 import { FileQuestion } from 'lucide-react';
 import { describeCluster } from '@/lib/clusters';
+import { readSettings } from '@/lib/settings';
+import { FilingSwitch } from '@/components/FilingSwitch';
 import { outlineOf } from '@/lib/outline';
 import { readIndex, readLog, linkIndex, listPages, splitPage } from '@/lib/wiki';
 import { Center } from '@/components/frame/Frame';
@@ -13,12 +15,13 @@ export const dynamic = 'force-dynamic';
 /** The wiki's front page: add a document, then the agent's own index. */
 export default async function ClusterIndex({ params }: { params: Promise<{ cluster: string }> }) {
   const { cluster } = await params;
-  const [meta, index, log, titles, listing] = await Promise.all([
+  const [meta, index, log, titles, listing, settings] = await Promise.all([
     describeCluster(cluster),
     readIndex(cluster),
     readLog(cluster, 12),
     linkIndex(cluster),
     listPages(cluster),
+    readSettings(cluster),
   ]);
 
   const pageCount = listing.total;
@@ -97,6 +100,7 @@ export default async function ClusterIndex({ params }: { params: Promise<{ clust
                     ))}
                   </tbody>
                 </table>
+                <FilingSwitch cluster={cluster} settings={settings} />
               </div>
             ),
           },

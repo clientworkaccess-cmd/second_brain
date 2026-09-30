@@ -15,7 +15,8 @@ import { diffAgainst, loadWiki, snapshot, type IngestDiff } from './wiki';
 import type { Facet } from './facets';
 import { beforeIngest, lintAfterIngest, sourceFingerprints, type LintResult } from './lint';
 import { planningSandbox } from './sandbox';
-import { commitCluster, ensureRepo } from './git';
+import { commitCluster, ensureRepo, revertCommit } from './git';
+import { readSettings } from './settings';
 import {
   basisIsStale,
   deletePlan,
@@ -65,13 +66,14 @@ export type JobStatus =
   | 'attention'
   | 'rejected'
   | 'failed'
-  | 'interrupted';
+  | 'interrupted'
+  | 'undone';
 
 /** States with a live agent process behind them. */
 const ACTIVE: JobStatus[] = ['planning', 'executing'];
 
 /** States nothing further will happen to on its own. */
-const FINAL: JobStatus[] = ['done', 'attention', 'rejected', 'failed', 'interrupted'];
+const FINAL: JobStatus[] = ['done', 'attention', 'rejected', 'failed', 'interrupted', 'undone'];
 
 export function isActive(status: JobStatus): boolean {
   return ACTIVE.includes(status);
@@ -100,6 +102,10 @@ export interface Job {
   originalPath: string | null;
   /** Bumped by each revision, so the UI can say "plan 2". */
   revision: number;
+  /** True when the plan was carried out as soon as it was made, because the wiki is set to file at once. */
+  automatic: boolean;
+  /** Short sha of the commit that undid this filing, when it was undone. */
+  undoCommit: string | null;
   error: string | null;
 }
 
@@ -219,6 +225,8 @@ export async function startPlanning(opts: {
     stagedPath: opts.stagedPath,
     originalPath: opts.originalPath,
     revision: 1,
+    automatic: false,
+    undoCommit: null,
     error: null,
   };
 
@@ -302,6 +310,15 @@ export async function approvePlan(jobId: string): Promise<Job> {
     throw new HttpError(422, 'The plan for this ingest is missing or unreadable. Create a new one.');
   }
 
+  await startExecution(job, approved);
+  return job;
+}
+
+/**
+ * Claim the wiki, check that the plan still describes it, and start writing.
+ * Shared by approval and by the automatic path.
+ */
+async function startExecution(job: Job, approved: Plan): Promise<void> {
   // Claim the cluster before the first await, not after the checks.
   // `snapshot()` below yields, and anything that yields between testing the
   // lock and taking it is not a lock: two clicks, or two tabs, would both read
@@ -335,7 +352,38 @@ export async function approvePlan(jobId: string): Promise<Job> {
   emit(job);
 
   void execute(job, approved);
+}
 
+/**
+ * "Undo". The commit that captured a filing is reverted, which takes the pages
+ * it wrote and the source it filed back out. A later filing that touched the
+ * same pages makes that impossible to do cleanly, and then nothing is changed.
+ */
+export async function undoFiling(jobId: string): Promise<Job> {
+  const job = await getJob(jobId);
+  if (!job) throw new HttpError(404, 'No such job');
+  if (job.status !== 'done' && job.status !== 'attention') {
+    throw new HttpError(409, `This ingest is ${job.status}, not filed`);
+  }
+  if (!job.commit) throw new HttpError(409, 'This filing was not committed, so there is nothing to revert. Restore the pages by hand.');
+
+  const held = busy.get(job.cluster);
+  if (held && held !== job.id) {
+    throw new HttpError(409, 'This cluster is already being written to. Wait for it to finish.');
+  }
+  busy.set(job.cluster, job.id);
+  try {
+    const layout = await layoutOf(job.cluster);
+    job.undoCommit = await revertCommit(job.cluster, job.commit, `Undo the filing of ${job.filename}`, layout);
+    job.status = 'undone';
+    job.endedAt = new Date().toISOString();
+    await persist(job);
+    emit(job);
+    // The wiki moved; whatever was read of it is read again.
+    await snapshot(job.cluster);
+  } finally {
+    busy.delete(job.cluster);
+  }
   return job;
 }
 
@@ -400,14 +448,33 @@ async function plan(
 
     await writePlan(parsed);
     job.status = 'awaiting_approval';
+
+    // Where a person has decided that this wiki files at once, the plan is
+    // carried out now. The job never rests: the panel that follows it sees
+    // planning turn into executing. Anything that stops it, such as another
+    // filing holding the wiki, leaves the plan waiting for a person instead.
+    if ((await readSettings(job.cluster)).filing === 'automatic') {
+      await sandbox.dispose();
+      sandbox = null;
+      try {
+        job.automatic = true;
+        await startExecution(job, parsed);
+        return;
+      } catch (err) {
+        job.automatic = false;
+        job.lines.push(`Not filed at once: ${err instanceof Error ? err.message : String(err)} Waiting for a decision.`);
+      }
+    }
   } catch (err) {
     job.status = 'failed';
     job.error = err instanceof Error ? err.message : String(err);
   } finally {
     await sandbox?.dispose();
-    job.endedAt = new Date().toISOString();
-    await persist(job);
-    emit(job);
+    if (job.status !== 'executing') {
+      job.endedAt = new Date().toISOString();
+      await persist(job);
+      emit(job);
+    }
   }
 }
 
@@ -702,6 +769,8 @@ async function readJobFile(file: string): Promise<Job | null> {
       stagedPath: raw.stagedPath ?? null,
       originalPath: raw.originalPath ?? null,
       revision: Number(raw.revision ?? 1) || 1,
+      automatic: raw.automatic === true,
+      undoCommit: raw.undoCommit ?? null,
       error: raw.error ?? null,
     };
   } catch {
