@@ -266,6 +266,10 @@ check('and nothing was changed by trying', (await pageCount('quick')) === 3 && e
 const backOut = await jobs.undoFiling(second.id);
 check('the later one can be', backOut.status === 'undone');
 
+const history = await jobs.listJobs('quick');
+check('a wiki lists its filings, newest first', history.map((j) => j.filename).join() === 'second.md,first.md,quick.md' && history.map((j) => j.status).join() === 'undone,done,undone', history.map((j) => `${j.filename}:${j.status}`).join(', '));
+check('and only its own', (await jobs.listJobs('ops')).every((j) => j.cluster === 'ops') && (await jobs.listJobs('ops')).length >= 5);
+
 // A wiki set to file at once while another filing holds it waits for a decision instead.
 await fs.rm(root, { recursive: true, force: true });
 

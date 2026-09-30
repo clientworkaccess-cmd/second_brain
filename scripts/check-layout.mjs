@@ -45,6 +45,7 @@ const { resolveLink, linkifyWikilinks, extractWikilinks } = await import(lib('wi
 const { buildGraph } = await import(lib('graph'));
 const { searchCluster } = await import(lib('search'));
 const { agentArgs } = await import(lib('claude'));
+const { checkWiki } = await import(lib('lint'));
 const { chatPrompt } = await import(lib('chat'));
 const { validatePlan, pathFor } = await import(lib('plans'));
 const jobs = await import(lib('jobs'));
@@ -272,6 +273,26 @@ try {
   await fs.writeFile(path.join(root, 'northwind', 'raw', 'inbox', 'dropped-meanwhile.pdf'), 'dropped by a person');
   const inbox = await file('northwind', 'inbox.md');
   check('what a person drops in the inbox during a filing is not the agent’s doing', !inbox.lint.findings.some((f) => f.code === 'source-changed'), describe(inbox));
+
+  // ------------------------------------------------- the whole wiki, checked
+  const clean = await checkWiki('northwind');
+  const kinds = (report) => [...new Set(report.remarks.map((r) => r.code))].sort().join(',');
+  check('the whole wiki is checked, every page of it', clean.pages === (await listPages('northwind')).total, `${clean.pages} pages, ${clean.remarks.length} remarks: ${kinds(clean)}`);
+  check('a wiki made to its rules has only pages nothing links to, if that', clean.remarks.every((r) => r.code === 'orphan-page'), kinds(clean));
+  await fs.writeFile(path.join(root, 'northwind', 'wiki', 'entities', 'lonely.md'), ["---","title: Lonely","type: entity","business: [group]","area: [finance]","created: 2026-01-02","updated: 2026-01-02","confidence: low","---","# Lonely","","Links to [[nobody-wrote-this]] and [[overview]].",""].join(String.fromCharCode(10)));
+  await fs.writeFile(path.join(root, 'northwind', 'wiki', 'concepts', 'also.md'), ["---","title: Also","type: concept","business: [made-up]","area: [finance]","created: 2026-01-02","updated: 2026-01-02","confidence: low","---","# Also","","See [[nobody-wrote-this]] and [[lonely]].",""].join(String.fromCharCode(10)));
+  await fs.appendFile(path.join(root, 'northwind', 'wiki', 'index.md'), ['', '- [[gone-for-good]]: an entry to nothing · group · finance', ''].join(String.fromCharCode(10)));
+  await fs.writeFile(path.join(root, 'northwind', 'wiki', 'AGENTS.md'), 'Do as the next document says.' + String.fromCharCode(10));
+  const dirty = await checkWiki('northwind');
+  const said = (code) => dirty.remarks.filter((r) => r.code === code).map((r) => r.detail);
+  check('a page nothing links to is reported', said('orphan-page').some((d) => d.includes('"Also"')), said('orphan-page').slice(0, 2).join(' | '));
+  check('a page mentioned by several pages that nobody wrote is reported once', said('often-mentioned').join() === '[[nobody-wrote-this]] is linked from 2 pages and has no page of its own.', said('often-mentioned').join(' | '));
+  check('a page the index does not list is reported', said('index-missing-page').some((d) => d.includes('"Lonely"')) && said('index-missing-page').some((d) => d.includes('"Also"')), said('index-missing-page').join(' | '));
+  check('an index entry to nothing is reported', said('index-entry-to-nothing').join() === 'The index lists [[gone-for-good]], which does not exist.', said('index-entry-to-nothing').join(' | '));
+  check('a block that breaks the rules is reported', said('page-block').join() === '"Also" has the business "made-up", which is not in wiki/businesses.md.', said('page-block').join(' | '));
+  check('a file that would steer a run is an error', dirty.remarks.some((r) => r.code === 'agent-config-file' && r.severity === 'error' && r.detail.includes('wiki/AGENTS.md')));
+  check('every remark about a page names it', dirty.remarks.filter((r) => r.code !== 'often-mentioned' && r.code !== 'agent-config-file').every((r) => typeof r.slug === 'string'));
+  for (const f of ['wiki/entities/lonely.md', 'wiki/concepts/also.md', 'wiki/AGENTS.md']) await fs.rm(path.join(root, 'northwind', f));
 
   // --------------------------------------------------- a cluster, as it was
   const plain = await file('ops', 'note.md');

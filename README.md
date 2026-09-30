@@ -59,7 +59,7 @@ npm run build && npm run serve
 | `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, a planner that misbehaves, a wiki that files at once, and the undo |
 | `npm run check:lint` | The check that runs after every filing |
 | `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
-| `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the command line, and that 350 pages are read once |
+| `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
 | `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
 | `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
@@ -268,6 +268,18 @@ carried out as soon as it is made. An automatic filing reports what it wrote,
 and any filing can be undone: the commit that captured it is reverted, pages
 and source together, in a commit of its own. A filing that a later one built
 on cannot be undone on its own; undo the later one first.
+
+**Every filing is on record.** The Filings panel on a wiki's front page lists
+them, newest first, with what became of each: filed, needing attention,
+waiting for a decision, discarded, failed, undone. A filing in the wiki can be
+undone from there; a plan waiting in another browser can be picked up in this
+one.
+
+**The wiki, held to its rules.** The check page (the list icon in the page
+tree's header) looks at every page: links both ways, the index both ways,
+every block against the rules, and files that would steer a run. Nothing is
+changed; a person reads the report and decides. The check after a filing
+looks only at what that filing touched.
 
 **A question can follow the last.** The chat keeps one conversation per wiki
 for as long as the browser tab is: the agent resumes the session it kept and
