@@ -21,6 +21,7 @@ import type { Facet } from '@/lib/facets';
 import type { SearchHit } from '@/lib/search';
 import type { Listing, PageRef } from '@/lib/wiki';
 import { pageHref } from '@/lib/wikilinks';
+import { NewPageButton } from '@/components/NewPageButton';
 
 /**
  * The left sidebar. In a cluster it is the page tree and the search, as in the
@@ -125,6 +126,7 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
             <Link className="icon-button" href={home} title="Add a document">
               <FilePlus size={16} />
             </Link>
+            <NewPageButton cluster={cluster} folders={listing.folders.map(({ dir, label }) => ({ dir, label }))} />
             <button
               type="button"
               className="icon-button"

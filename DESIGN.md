@@ -13,6 +13,7 @@ That is the whole brief. Everything below follows from it.
 | Frame, tree, tabs, status bar, reading view, graph chrome, search panel | The desktop app's stylesheets, carried over with their class names. Here: `src/app/globals.css` |
 | Upload, plan review, chat, the wizard, sign-in | Only this app has them. Built from `src/components/ui.tsx` with the same tokens |
 | The mark | The desktop app's icon, as a vector in `src/components/Logo.tsx` and as `src/app/icon.png` |
+| The editor | The desktop app's editor, its live preview and its toolbar, carried over with their class names. Here: `src/editor/` and the editor rules in `src/app/globals.css` |
 
 When the desktop app changes a token or a rule that is in the first two rows,
 change it here too. When this app needs a rule the desktop app does not have,
@@ -71,6 +72,10 @@ before the first paint.
   choice stays for as long as the browser tab is.
 - **Centre:** a tab for every page that is open, kept for as long as the browser tab is.
 - **Right:** backlinks, outline and links for a page. For a cluster: the agent's activity, every filing with what became of it and an undo, and a summary with the one decision a person makes about it: whether a filing waits for approval.
+- **The editor:** the page as the desktop app edits it. Toolbar above, the
+  text filling the pane, Live or Source, the state of the save at the right,
+  Done in the accent colour. A page that changed underneath shows a banner
+  with the choice, never a dialog.
 - **The check page:** the wiki held to its rules, grouped by what is wrong, each remark with a link to the page. Warning colour for what a person may want to look at, danger for what must go.
 - **A page's properties:** the block at its top, as the desktop app shows it. A
   facet's values are chips that lead to every page sharing them. What the rules
