@@ -310,7 +310,9 @@ A page that changed on disk since it was opened is not overwritten: the
 writer is told and chooses. "Done" saves, makes a restore point, and goes
 back to reading. A new page starts from the page tree, with the block the
 rules ask for already in it. Only pages can be written this way: not the
-rules, not the sources, nothing outside the pages. A page can be renamed or
+rules, not the sources, nothing outside the pages. Beside every page, the Graph panel
+shows the page's own neighbourhood: the pages one or two links away, this
+one marked; a node opens its page. A page can be renamed or
 deleted from the status bar. A rename is a new title: the file name follows
 it, and so does every link to the page, in every page and in the index
 (links written as an alias stay). A delete says first how many pages link

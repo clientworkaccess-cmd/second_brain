@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { FileText, PenLine } from 'lucide-react';
 import { listImages } from '@/lib/assets';
 import { HttpError } from '@/lib/config';
+import { buildGraph } from '@/lib/graph';
+import { localGraph } from '@/lib/localGraph';
 import { inPages, layoutOf } from '@/lib/layout';
 import { outlineOf, wordCount } from '@/lib/outline';
 import { backlinksOf, linkIndex, readPage } from '@/lib/wiki';
@@ -10,6 +12,7 @@ import { pageHref, resolveLink } from '@/lib/wikilinks';
 import { Center } from '@/components/frame/Frame';
 import { RightSidebar } from '@/components/frame/RightSidebar';
 import { StatusItems } from '@/components/frame/controls';
+import { LocalGraph } from '@/components/LocalGraph';
 import { MarkdownView } from '@/components/MarkdownView';
 import { PageActions } from '@/components/PageActions';
 
@@ -31,7 +34,8 @@ export default async function WikiPage({
     throw err;
   }
 
-  const [titles, backlinks, images, layout] = await Promise.all([linkIndex(cluster), backlinksOf(cluster, page.slug), listImages(cluster), layoutOf(cluster)]);
+  const [titles, backlinks, images, layout, whole] = await Promise.all([linkIndex(cluster), backlinksOf(cluster, page.slug), listImages(cluster), layoutOf(cluster), buildGraph(cluster)]);
+  const around = localGraph(whole, page.slug, 2);
   const inside = inPages(layout, page.slug);
   const fromDir = inside.includes('/') ? inside.slice(0, inside.lastIndexOf('/')) : '';
   const outline = outlineOf(page.body);
@@ -67,6 +71,11 @@ export default async function WikiPage({
                   ))}
                 </div>
               ),
+          },
+          {
+            id: 'graph',
+            label: 'Graph',
+            content: <LocalGraph graph={around} cluster={cluster} current={page.slug} />,
           },
           {
             id: 'outline',

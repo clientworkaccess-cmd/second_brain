@@ -392,7 +392,9 @@ try {
   const relinked = await (await get('/api/page?cluster=operations&slug=index', { cookie })).json();
   check('the index links to it by its new name', relinked.text.includes('[[Warehouse Crew') && !relinked.text.includes('[[Warehouse Team'), relinked.text.split('\n').filter((l) => /warehouse/i.test(l)).join(' | '));
   const renamedPage = await get('/c/operations/entities/warehouse-crew', { cookie });
-  check('the renamed page opens', renamedPage.status === 200 && (await renamedPage.text()).includes('Warehouse Crew'));
+  const renamedHtml = await renamedPage.text();
+  check('the renamed page opens', renamedPage.status === 200 && renamedHtml.includes('Warehouse Crew'));
+  check('a page carries its own graph beside it', renamedHtml.includes('class="local-graph"') && /pages? around this one/.test(renamedHtml), (renamedHtml.match(/\d+ pages? around this one/) ?? ['no header'])[0]);
   check('renaming onto another page is refused', (await fetch(`${base}/api/page/rename`, withCookie(json({ cluster: 'operations', slug: 'entities/warehouse-crew', title: 'Returns Portal' }), cookie))).status === 409);
   const deleted = await fetch(`${base}/api/page`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cluster: 'operations', slug: 'entities/picture-page' }) }, cookie)).then(async (r) => ({ status: r.status, data: await r.json() }));
   check('a page can be deleted', deleted.status === 200 && deleted.data.slug === 'entities/picture-page' && typeof deleted.data.commit === 'string', `${deleted.status} ${JSON.stringify(deleted.data)}`);
