@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { SendHorizonal, MessageSquare, Square } from 'lucide-react';
+import { SendHorizonal, MessageSquare, MessageSquarePlus, Square } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
+import { pageHref, resolveLink } from '@/lib/wikilinks';
 
 interface Turn {
   question: string;
@@ -25,7 +26,37 @@ interface Turn {
  *
  * The answer is rendered as it arrives, in the reading view's own typography,
  * and the pages it names become links.
+ *
+ * The questions are one conversation: the agent is given the id of the session
+ * it kept, and remembers what was asked before. The conversation, and what was
+ * said in it, stay for as long as the browser tab is. "New conversation"
+ * starts afresh.
  */
+
+interface Kept {
+  conversation: string | null;
+  turns: Turn[];
+}
+
+function kept(cluster: string): Kept {
+  try {
+    const raw = sessionStorage.getItem(`sb-chat:${cluster}`);
+    if (!raw) return { conversation: null, turns: [] };
+    const parsed = JSON.parse(raw) as Kept;
+    // A question that was being answered when the tab went is over.
+    return { conversation: parsed.conversation ?? null, turns: (parsed.turns ?? []).filter((turn) => turn.done) };
+  } catch {
+    return { conversation: null, turns: [] };
+  }
+}
+
+function keep(cluster: string, value: Kept): void {
+  try {
+    sessionStorage.setItem(`sb-chat:${cluster}`, JSON.stringify(value));
+  } catch {
+    /* lasts for this page */
+  }
+}
 export function ChatPanel({
   cluster,
   hasPages,
@@ -37,15 +68,31 @@ export function ChatPanel({
   titles: [string, string][];
 }) {
   const [turns, setTurns] = useState<Turn[]>([]);
+  const [conversation, setConversation] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const known = useMemo(() => new Map(titles), [titles]);
 
+  // What was said before the page was reloaded, back on screen.
+  useEffect(() => {
+    const before = kept(cluster);
+    setConversation(before.conversation);
+    setTurns(before.turns);
+  }, [cluster]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [turns]);
+    if (turns.every((turn) => turn.done)) keep(cluster, { conversation, turns });
+  }, [turns, conversation, cluster]);
+
+  function startAfresh() {
+    if (busy) return;
+    setTurns([]);
+    setConversation(null);
+    keep(cluster, { conversation: null, turns: [] });
+  }
 
   async function ask() {
     const text = question.trim();
@@ -62,7 +109,7 @@ export function ChatPanel({
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster, question: text }),
+        body: JSON.stringify({ cluster, question: text, conversation }),
         signal: controller.signal,
       });
 
@@ -88,7 +135,10 @@ export function ChatPanel({
           const raw = frame.match(/^data: (.*)$/m)?.[1];
           if (!event || !raw) continue;
 
-          if (event === 'token') {
+          if (event === 'session') {
+            const { id } = JSON.parse(raw) as { id: string };
+            setConversation(id);
+          } else if (event === 'token') {
             const { text: chunk } = JSON.parse(raw) as { text: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: turn.answer + chunk })));
           } else if (event === 'activity') {
@@ -143,11 +193,21 @@ export function ChatPanel({
     <div className="chat">
       <div className="chat-scroll">
         <div className="content space-y-7">
-          {turns.length === 0 && (
+          {turns.length === 0 ? (
             <p className="max-w-prose text-body text-muted">
               Ask anything this cluster covers. Answers come with the pages they were drawn from, so
-              you can read the source yourself rather than take the answer on trust.
+              you can read the source yourself rather than take the answer on trust. Each question
+              can build on the last.
             </p>
+          ) : (
+            <div className="flex items-center gap-3">
+              <span className="section-title">This conversation</span>
+              <span className="statusbar-spacer" />
+              <Button variant="quiet" onClick={startAfresh} disabled={busy} title="Forget what was asked so far and start again">
+                <MessageSquarePlus size={14} />
+                New conversation
+              </Button>
+            </div>
           )}
 
           {turns.map((turn, i) => (
@@ -182,9 +242,9 @@ export function ChatPanel({
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="text-small text-muted">From</span>
                   {turn.sources.map((source) => {
-                    const slug = known.get(source.toLowerCase());
+                    const slug = resolveLink(known, source);
                     return slug ? (
-                      <Link key={source} href={`/c/${cluster}/${slug}`} className="tag">
+                      <Link key={source} href={pageHref(cluster, slug)} className="tag">
                         {source}
                       </Link>
                     ) : (

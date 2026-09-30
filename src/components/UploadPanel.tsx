@@ -21,13 +21,14 @@ type JobStatus =
   | 'attention'
   | 'rejected'
   | 'failed'
-  | 'interrupted';
+  | 'interrupted'
+  | 'undone';
 
 /** Mirrors isActive() on the server: an agent process is running. */
 const ACTIVE: JobStatus[] = ['planning', 'executing'];
 
 /** Mirrors isFinal(): nothing further happens on its own. */
-const FINAL: JobStatus[] = ['done', 'attention', 'rejected', 'failed', 'interrupted'];
+const FINAL: JobStatus[] = ['done', 'attention', 'rejected', 'failed', 'interrupted', 'undone'];
 
 interface Job {
   id: string;
@@ -39,6 +40,8 @@ interface Job {
   diff: { newPages: number; updatedPages: number; newConnections: number } | null;
   lint: { ok: boolean; findings: Finding[] } | null;
   commit?: string | null;
+  /** The plan was carried out as soon as it was made, because the wiki is set to file at once. */
+  automatic?: boolean;
   error: string | null;
 }
 
@@ -263,7 +266,22 @@ export function UploadPanel({ cluster }: { cluster: string }) {
   }
 
   if (job && (job.status === 'done' || job.status === 'attention') && job.diff) {
-    return <IngestDiff job={job} onDismiss={() => setJob(null)} />;
+    return <IngestDiff job={job} busy={deciding} error={error} onUndo={() => void decide('undo', {})} onDismiss={() => setJob(null)} />;
+  }
+
+  if (job && job.status === 'undone') {
+    return (
+      <Card className="p-4">
+        <Badge tone="neutral">Undone</Badge>
+        <h3 className="mt-2.5 text-title font-semibold text-ink">{job.filename} was taken back out</h3>
+        <p className="mt-1 max-w-prose text-body text-muted">
+          The pages it wrote and the source it filed were reverted in a commit of their own. The wiki is as it was before.
+        </p>
+        <Button variant="ghost" className="mt-4" onClick={() => setJob(null)}>
+          Add another
+        </Button>
+      </Card>
+    );
   }
 
   if (job && job.status === 'rejected') {
@@ -488,7 +506,19 @@ function Elapsed({ since }: { since: string }) {
   );
 }
 
-function IngestDiff({ job, onDismiss }: { job: Job; onDismiss: () => void }) {
+function IngestDiff({
+  job,
+  busy,
+  error,
+  onUndo,
+  onDismiss,
+}: {
+  job: Job;
+  busy: boolean;
+  error: string | null;
+  onUndo: () => void;
+  onDismiss: () => void;
+}) {
   const diff = job.diff!;
   const findings = job.lint?.findings ?? [];
   const attention = job.status === 'attention';
@@ -506,6 +536,11 @@ function IngestDiff({ job, onDismiss }: { job: Job; onDismiss: () => void }) {
           ? `${job.filename} was read, but the record is not in order`
           : `${job.filename} is now part of the wiki`}
       </h3>
+      {job.automatic && (
+        <p className="mt-1 max-w-prose text-ui text-muted">
+          Filed at once, as this cluster is set to. Undo it below if the plan was not what you would have approved.
+        </p>
+      )}
 
       <dl className="mt-4 grid grid-cols-3 divide-x divide-line rounded border border-line bg-canvas text-center">
         {stats.map((stat) => (
@@ -535,9 +570,23 @@ function IngestDiff({ job, onDismiss }: { job: Job; onDismiss: () => void }) {
         </p>
       )}
 
-      <Button variant="ghost" className="mt-4" onClick={onDismiss}>
-        {attention ? 'Add another anyway' : 'Add another'}
-      </Button>
+      {error && (
+        <p role="alert" className="mt-3 text-small text-danger">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <Button variant="ghost" onClick={onDismiss} disabled={busy}>
+          {attention ? 'Add another anyway' : 'Add another'}
+        </Button>
+        {job.commit && (
+          <Button variant="quiet" onClick={onUndo} disabled={busy} title="Take this filing back out of the wiki">
+            <RotateCcw size={14} />
+            {busy ? 'Undoing…' : 'Undo this filing'}
+          </Button>
+        )}
+      </div>
     </Card>
   );
 }

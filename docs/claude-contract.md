@@ -46,6 +46,8 @@ claude -p \
 | `--allowedTools` | What may be done without approval, which in `dontAsk` means what may be done at all |
 | `--disallowedTools` | Second layer. Deny rules win over allow rules |
 | `--append-system-prompt-file` | The wiki rules, added to Claude Code's own instructions: `prompts/llm-wiki.md` for a cluster, `prompts/brain-wiki.md` for a brain (see the README, "Two layouts") |
+| `--no-session-persistence` | Planning and filing keep nothing of a run. Chat is the exception below |
+| `--session-id <uuid>`, `--resume <uuid>` | Chat only. The first question of a conversation starts a session under an id the app made; every later question resumes it, so the agent remembers what was asked. The session lives in Claude's own folder, and is the one thing a run keeps |
 | `--setting-sources ""` | No settings and no `CLAUDE.md` are loaded from anywhere: not from the working directory, which the agent writes to, and not from anyone's home. A brain keeps its rules in a `CLAUDE.md` at the top of its folder; it reaches the agent because the prompt says to read it, never as settings |
 | `--strict-mcp-config` | No MCP servers except ones named on the command line, and none are |
 | `--disable-slash-commands` | No skills or commands |
