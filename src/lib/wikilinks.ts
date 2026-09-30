@@ -118,3 +118,16 @@ export function pageHref(cluster: string, slug: string): string {
 }
 
 const escapeLabel = (text: string): string => text.replace(/([\[\]])/g, '\\$1');
+
+/**
+ * "Mark Chen" -> "mark-chen": the file name a page gets from its title.
+ * Strict: everything outside [a-z0-9-] goes, which also means no separators,
+ * no dots, and nothing that could climb a directory.
+ */
+export function slugOfTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}

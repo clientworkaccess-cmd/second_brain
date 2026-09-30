@@ -42,6 +42,18 @@
   --selection: rgba(13, 148, 136, 0.22);
   --graph-lightness: 42%;
 
+  /* The editor: what the desktop app's theme.css gives it. */
+  --selection-match: rgba(13, 148, 136, 0.12);
+  --search-match: rgba(255, 200, 0, 0.35);
+  --search-match-selected: rgba(255, 140, 0, 0.55);
+  --syn-keyword: #a626a4;
+  --syn-string: #50a14f;
+  --syn-number: #986801;
+  --syn-comment: #8a8a8a;
+  --syn-function: #4078f2;
+  --syn-type: #c18401;
+  --syn-property: #e45649;
+
   /* The names the desktop app's stylesheets use. */
   --bg-primary: rgb(var(--c-bg-primary));
   --bg-secondary: rgb(var(--c-bg-secondary));
@@ -84,6 +96,16 @@
   --scrollbar: rgba(255, 255, 255, 0.2);
   --selection: rgba(45, 212, 191, 0.28);
   --graph-lightness: 64%;
+  --selection-match: rgba(45, 212, 191, 0.14);
+  --search-match: rgba(255, 200, 0, 0.3);
+  --search-match-selected: rgba(255, 140, 0, 0.5);
+  --syn-keyword: #c678dd;
+  --syn-string: #98c379;
+  --syn-number: #d19a66;
+  --syn-comment: #7f848e;
+  --syn-function: #61afef;
+  --syn-type: #e5c07b;
+  --syn-property: #e06c75;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -111,5 +133,15 @@
     --scrollbar: rgba(255, 255, 255, 0.2);
     --selection: rgba(45, 212, 191, 0.28);
     --graph-lightness: 64%;
+    --selection-match: rgba(45, 212, 191, 0.14);
+    --search-match: rgba(255, 200, 0, 0.3);
+    --search-match-selected: rgba(255, 140, 0, 0.5);
+    --syn-keyword: #c678dd;
+    --syn-string: #98c379;
+    --syn-number: #d19a66;
+    --syn-comment: #7f848e;
+    --syn-function: #61afef;
+    --syn-type: #e5c07b;
+    --syn-property: #e06c75;
   }
 }

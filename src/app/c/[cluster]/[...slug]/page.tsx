@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { FileText } from 'lucide-react';
+import { FileText, PenLine } from 'lucide-react';
 import { HttpError } from '@/lib/config';
 import { outlineOf, wordCount } from '@/lib/outline';
 import { backlinksOf, linkIndex, readPage } from '@/lib/wiki';
@@ -121,6 +121,10 @@ export default async function WikiPage({
         </span>
         <span className="statusbar-item muted">{wordCount(page.body)} words</span>
         <span className="statusbar-item muted">updated {page.updatedAt.slice(0, 10)}</span>
+        <Link className="statusbar-item edit-link" href={`/c/${cluster}/edit/${page.slug.split('/').map(encodeURIComponent).join('/')}`} title="Open this page in the editor">
+          <PenLine size={12} />
+          Edit
+        </Link>
       </StatusItems>
     </>
   );
