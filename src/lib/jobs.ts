@@ -17,6 +17,7 @@ import { beforeIngest, lintAfterIngest, sourceFingerprints, type LintResult } fr
 import { planningSandbox } from './sandbox';
 import { commitCluster, ensureRepo, revertCommit } from './git';
 import { readSettings } from './settings';
+import { audit } from './audit';
 import {
   basisIsStale,
   deletePlan,
@@ -481,6 +482,7 @@ async function plan(
       try {
         job.automatic = true;
         await startExecution(job, parsed);
+        await audit({ event: 'filing-automatic', detail: `${job.cluster}: ${job.filename}` });
         return;
       } catch (err) {
         job.automatic = false;

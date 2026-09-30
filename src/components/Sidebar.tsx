@@ -14,8 +14,7 @@ import {
   FolderPlus,
   ListChecks,
   MessageSquare,
-  Waypoints,
-} from 'lucide-react';
+  Waypoints, ShieldCheck } from 'lucide-react';
 import type { Cluster } from '@/lib/clusters';
 import type { Facet } from '@/lib/facets';
 import type { SearchHit } from '@/lib/search';
@@ -350,6 +349,9 @@ export function ClusterSidebar({ clusters }: { clusters: Cluster[] }) {
     <>
       <div className="sidebar-header">
         <span className="sidebar-title">Clusters</span>
+        <Link className={`icon-button${pathname === '/security' ? ' active' : ''}`} href="/security" title="Security: who is signed in, and what was done">
+          <ShieldCheck size={16} />
+        </Link>
         <Link className={`icon-button${pathname === '/new' ? ' active' : ''}`} href="/new" title="New cluster">
           <FolderPlus size={16} />
         </Link>

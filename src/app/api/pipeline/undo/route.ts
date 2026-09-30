@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { HttpError } from '@/lib/config';
+import { SESSION_COOKIE } from '@/lib/env-auth';
 import { undoFiling } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +20,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const job = await undoFiling(String(body.jobId ?? ''));
+    await audit({ event: 'filing-undone', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${job.cluster}: ${job.filename} (${job.undoCommit ?? '?'})` });
     return NextResponse.json({ job });
   } catch (err) {
     if (err instanceof HttpError) {
