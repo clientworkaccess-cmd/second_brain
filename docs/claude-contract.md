@@ -28,7 +28,7 @@ claude -p \
   --tools <tools for the task> \
   --allowedTools <allow rules for the task> \
   --disallowedTools <deny rules> \
-  --append-system-prompt-file <app>/prompts/llm-wiki.md \
+  --append-system-prompt-file <app>/prompts/<the wiki's layout>.md \
   --setting-sources "" \
   --strict-mcp-config \
   --disable-slash-commands \
@@ -45,8 +45,8 @@ claude -p \
 | `--tools` | The whole toolbox for the run. A tool not named here does not exist for it |
 | `--allowedTools` | What may be done without approval, which in `dontAsk` means what may be done at all |
 | `--disallowedTools` | Second layer. Deny rules win over allow rules |
-| `--append-system-prompt-file` | The wiki rules, added to Claude Code's own instructions |
-| `--setting-sources ""` | No settings and no `CLAUDE.md` are loaded from anywhere: not from the working directory, which the agent writes to, and not from anyone's home |
+| `--append-system-prompt-file` | The wiki rules, added to Claude Code's own instructions: `prompts/llm-wiki.md` for a cluster, `prompts/brain-wiki.md` for a brain (see the README, "Two layouts") |
+| `--setting-sources ""` | No settings and no `CLAUDE.md` are loaded from anywhere: not from the working directory, which the agent writes to, and not from anyone's home. A brain keeps its rules in a `CLAUDE.md` at the top of its folder; it reaches the agent because the prompt says to read it, never as settings |
 | `--strict-mcp-config` | No MCP servers except ones named on the command line, and none are |
 | `--disable-slash-commands` | No skills or commands |
 | `--no-session-persistence` | The run is not stored. Nothing is resumed in this stage, and a stored session is a copy of document text |
@@ -65,9 +65,9 @@ Never on the command line:
 
 | Task | Working directory | `--tools` | `--allowedTools` |
 |---|---|---|---|
-| plan | a throwaway copy of the cluster | `Read,Glob,Grep,Write` | `Edit(/plan.json)` |
-| execute | the cluster | `Read,Glob,Grep,Write,Edit` | `Edit(/**)` |
-| chat | the cluster | `Read,Glob,Grep` | none |
+| plan | a throwaway copy of the wiki | `Read,Glob,Grep,Write` | `Edit(/plan.json)` |
+| execute | the wiki's folder | `Read,Glob,Grep,Write,Edit` | `Edit(/**)` in a cluster; `Edit(/wiki/**)` in a brain, whose pages are in `wiki/` |
+| chat | the wiki's folder | `Read,Glob,Grep` | none |
 
 There is no allow rule for `Read`. Reading inside the working directory needs
 none, and a bare `Read` rule would open every file the process can reach.
@@ -77,8 +77,9 @@ Denied in every task:
 | Rule | What it protects |
 |---|---|
 | `Bash`, `WebFetch`, `WebSearch`, `Agent`, `Task`, `NotebookEdit` | No shell, no network, no subagents, even if a later version adds them to a default |
-| `Edit(/SCHEMA.md)` | The rules for the cluster, which every run reads first. Written by the app from what a person said |
+| `Edit(/SCHEMA.md)`, and in a brain `Edit(/CLAUDE.md)` | The rules for the wiki, which every run reads first. Written by a person |
 | `Edit(/raw/**)` | Sources stay as they were given. The app puts them there |
+| `Edit(/staging/**)`, `Read(/**/_secrets/**)` | A brain may have come with a working copy of a mailbox beside the wiki. It is not written, and its key is not read |
 | `Edit(/CLAUDE.md)`, `Edit(/**/CLAUDE.md)`, `Edit(/AGENTS.md)`, `Edit(/**/AGENTS.md)` | A run cannot leave instructions for the next one |
 | `Edit(/.claude/**)`, `Edit(/.mcp.json)` | A run cannot configure the next one |
 | `Edit(/.git/**)` | The restore points stay intact |

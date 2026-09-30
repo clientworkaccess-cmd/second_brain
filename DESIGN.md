@@ -63,7 +63,10 @@ before the first paint.
 ```
 
 - The window does not scroll. The panes do.
-- **Left:** the page tree and the search. On the front page, the clusters.
+- **Left:** the page tree and the search. On the front page, the clusters. The
+  folders are the wiki's own; the pages beside the index come after them, the
+  index first. A wiki of more than sixty pages opens with its folders closed,
+  and opening a page opens its folder.
 - **Centre:** a tab for every page that is open, kept for as long as the browser tab is.
 - **Right:** backlinks, outline and links for a page. Activity and a summary for a cluster.
 - **Status bar:** the cluster and its size on the left, the page's own facts on the right.
@@ -87,7 +90,9 @@ class names that collide.
 One colour per folder: the hues are spread by the golden angle over the folder
 names in alphabetical order, at 62% saturation, lighter on dark. That is the
 desktop app's rule, so the same wiki gets the same kind of colours in both.
-A link to a page that does not exist is drawn faint and dashed.
+A link to a page that does not exist is drawn faint and dashed. Past 120
+pages only the thirty best-connected keep their labels, and whatever is under
+the pointer with its neighbours.
 
 The desktop app draws with WebGL, because a vault reaches thousands of links.
 This app draws SVG, because a cluster reaches tens to low hundreds of pages.
