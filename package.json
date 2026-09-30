@@ -11,15 +11,17 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "hash-password": "node scripts/hash-password.mjs",
+    "gen-brain": "node scripts/gen-brain.mjs",
     "check:stream": "node scripts/check-claude-stream.mjs",
     "check:auth": "node scripts/check-auth.mjs",
     "check:pipeline": "node scripts/check-pipeline.mjs",
     "check:lint": "node scripts/check-lint.mjs",
     "check:pages": "node scripts/check-pages.mjs",
+    "check:layout": "node scripts/check-layout.mjs",
     "check:design": "node scripts/check-design.mjs",
     "check:live": "node scripts/check-live.mjs",
     "check:real": "node scripts/check-real.mjs",
-    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:design"
+    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:design"
   },
   "dependencies": {
     "@types/d3-force": "^3.0.10",
