@@ -75,7 +75,9 @@ function block(fields) {
   const lines = ['---'];
   for (const [key, value] of Object.entries(fields)) {
     if (value === undefined) continue;
-    lines.push(`${key}: ${Array.isArray(value) ? `[${value.join(', ')}]` : value}`);
+    // A title with a colon in it has to be quoted, or it is not YAML.
+    const text = Array.isArray(value) ? `[${value.join(', ')}]` : /[:#]/.test(String(value)) ? JSON.stringify(String(value)) : String(value);
+    lines.push(`${key}: ${text}`);
   }
   lines.push('---', '');
   return lines.join('\n');
