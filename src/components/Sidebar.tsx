@@ -17,33 +17,44 @@ import {
 } from 'lucide-react';
 import type { Cluster } from '@/lib/clusters';
 import type { SearchHit } from '@/lib/search';
-import type { PageDir, PageRef } from '@/lib/wiki';
+import type { Listing, PageRef } from '@/lib/wiki';
+import { pageHref } from '@/lib/wikilinks';
 
 /**
  * The left sidebar. In a cluster it is the page tree and the search, as in the
  * desktop app; on the front page it is the list of clusters.
  */
 
-const FOLDERS: { dir: PageDir; label: string }[] = [
-  { dir: 'entities', label: 'Entities' },
-  { dir: 'concepts', label: 'Concepts' },
-  { dir: 'comparisons', label: 'Comparisons' },
-  { dir: 'queries', label: 'Saved answers' },
-];
+/** The index and the log are called what they are. Every other page goes by its title. */
+const nameOf = (page: PageRef): string => (page.slug === 'index' ? 'Index' : page.slug === 'log' ? 'Log' : page.title);
 
-export function PageSidebar({ cluster, pages }: { cluster: string; pages: Record<PageDir, PageRef[]> }) {
-  const pathname = usePathname();
+/** A wiki with this many pages opens with its folders closed: the tree is for finding a folder first. */
+const MANY_PAGES = 60;
+
+export function PageSidebar({ cluster, listing }: { cluster: string; listing: Listing }) {
+  const pathname = decodeURIComponent(usePathname());
   const [panel, setPanel] = useState<'pages' | 'search'>('pages');
-  const [collapsed, setCollapsed] = useState<Set<PageDir>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(
+    () => new Set(listing.total > MANY_PAGES ? listing.folders.map((f) => f.dir) : []),
+  );
   const home = `/c/${cluster}`;
+  // The index is the front page of the wiki. It is listed first among the pages beside it.
+  const beside = [...listing.root].sort((a, b) => Number(b.slug === 'index') - Number(a.slug === 'index'));
 
-  const toggle = (dir: PageDir): void =>
+  const toggle = (dir: string): void =>
     setCollapsed((was) => {
       const next = new Set(was);
       if (next.has(dir)) next.delete(dir);
       else next.add(dir);
       return next;
     });
+
+  // Opening a page opens its folder, so the tree shows where the reader is.
+  useEffect(() => {
+    const here = listing.folders.find((folder) => folder.pages.some((page) => `${home}/${page.slug}` === pathname));
+    if (!here) return;
+    setCollapsed((was) => (was.has(here.dir) ? new Set([...was].filter((dir) => dir !== here.dir)) : was));
+  }, [pathname, listing, home]);
 
   return (
     <>
@@ -64,7 +75,7 @@ export function PageSidebar({ cluster, pages }: { cluster: string; pages: Record
               type="button"
               className="icon-button"
               title="Collapse all"
-              onClick={() => setCollapsed(new Set(FOLDERS.map((f) => f.dir)))}
+              onClick={() => setCollapsed(new Set(listing.folders.map((f) => f.dir)))}
             >
               <ChevronsDownUp size={16} />
             </button>
@@ -86,8 +97,7 @@ export function PageSidebar({ cluster, pages }: { cluster: string; pages: Record
           <SearchPanel cluster={cluster} />
         ) : (
           <nav className="tree" aria-label="Pages">
-            {FOLDERS.map(({ dir, label }) => {
-              const refs = pages[dir] ?? [];
+            {listing.folders.map(({ dir, label, pages: refs }) => {
               const open = !collapsed.has(dir);
               return (
                 <div key={dir}>
@@ -101,12 +111,12 @@ export function PageSidebar({ cluster, pages }: { cluster: string; pages: Record
                   </button>
                   {open &&
                     refs.map((ref) => {
-                      const href = `${home}/${ref.slug}`;
+                      const href = pageHref(cluster, ref.slug);
                       return (
                         <Link
                           key={ref.slug}
                           href={href}
-                          className={`tree-row file${pathname === href ? ' active' : ''}`}
+                          className={`tree-row file${pathname === `${home}/${ref.slug}` ? ' active' : ''}`}
                           title={ref.title}
                         >
                           <span className="tree-chevron" style={{ marginLeft: 20 }} />
@@ -118,11 +128,21 @@ export function PageSidebar({ cluster, pages }: { cluster: string; pages: Record
                 </div>
               );
             })}
-            <Link href={home} className={`tree-row file${pathname === home ? ' active' : ''}`}>
-              <span className="tree-chevron" style={{ marginLeft: 4 }} />
-              <FileText className="tree-icon" size={15} />
-              <span className="tree-name">Index</span>
-            </Link>
+            {beside.map((page) => {
+              const at = page.slug === 'index' ? home : `${home}/${page.slug}`;
+              return (
+                <Link
+                  key={page.slug}
+                  href={page.slug === 'index' ? home : pageHref(cluster, page.slug)}
+                  className={`tree-row file${pathname === at ? ' active' : ''}`}
+                  title={page.title}
+                >
+                  <span className="tree-chevron" style={{ marginLeft: 4 }} />
+                  <FileText className="tree-icon" size={15} />
+                  <span className="tree-name">{nameOf(page)}</span>
+                </Link>
+              );
+            })}
           </nav>
         )}
       </div>
@@ -184,7 +204,7 @@ function SearchPanel({ cluster }: { cluster: string }) {
       )}
       <div className="search-results">
         {(hits ?? []).map((hit) => (
-          <Link key={hit.slug} href={`/c/${cluster}/${hit.slug}`} className="search-hit">
+          <Link key={hit.slug} href={pageHref(cluster, hit.slug)} className="search-hit">
             <span className="search-hit-title">
               <Highlighted text={hit.title} terms={terms} />
             </span>

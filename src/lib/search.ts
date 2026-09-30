@@ -1,13 +1,13 @@
-import { clusterPath } from './config';
-import { readIfPresent } from './clusters';
-import { PAGE_DIRS, listPages, splitPage } from './wiki';
+import { pageTexts } from './wiki';
+import { withoutLinks } from './wikilinks';
 
 /**
- * Search across the pages of one cluster.
+ * Search across the pages of one wiki.
  *
- * Plain text, every word has to appear, case does not matter. A cluster is tens
- * to a few hundred small files, so reading them on each search costs less than
- * keeping an index in step with an agent that writes behind our back.
+ * Plain text, every word has to appear, case does not matter. The text of the
+ * pages is already in memory (lib/wiki.ts), so a search reads nothing from disk
+ * and needs no index of its own to keep in step with an agent that writes
+ * behind our back.
  */
 
 export interface SearchHit {
@@ -23,23 +23,16 @@ export async function searchCluster(cluster: string, query: string, limit = 30):
   const terms = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))].slice(0, MAX_TERMS);
   if (terms.length === 0) return [];
 
-  const grouped = await listPages(cluster);
   const hits: (SearchHit & { score: number })[] = [];
 
-  for (const dir of PAGE_DIRS) {
-    for (const ref of grouped[dir]) {
-      const raw = await readIfPresent(clusterPath(cluster, `${ref.slug}.md`));
-      if (raw === null) continue;
+  for (const page of await pageTexts(cluster)) {
+    const title = page.title.toLowerCase();
+    const text = page.body.toLowerCase();
+    if (!terms.every((term) => title.includes(term) || text.includes(term))) continue;
 
-      const body = splitPage(raw).content;
-      const title = ref.title.toLowerCase();
-      const text = body.toLowerCase();
-      if (!terms.every((term) => title.includes(term) || text.includes(term))) continue;
-
-      const inTitle = terms.filter((term) => title.includes(term)).length;
-      const mentions = terms.reduce((n, term) => n + count(text, term), 0);
-      hits.push({ slug: ref.slug, title: ref.title, snippet: snippetOf(body, terms), score: inTitle * 1000 + mentions });
-    }
+    const inTitle = terms.filter((term) => title.includes(term)).length;
+    const mentions = terms.reduce((n, term) => n + count(text, term), 0);
+    hits.push({ slug: page.slug, title: page.title, snippet: snippetOf(page.body, terms), score: inTitle * 1000 + mentions });
   }
 
   return hits
@@ -55,9 +48,7 @@ function count(text: string, term: string): number {
 }
 
 function snippetOf(body: string, terms: string[]): string {
-  const flat = body
-    .replace(/^#{1,6}\s+.*$/m, '') // the title is shown already
-    .replace(/\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_all, target: string, label?: string) => label ?? target)
+  const flat = withoutLinks(body.replace(/^#{1,6}\s+.*$/m, '')) // the title is shown already
     .replace(/[*_`>#]/g, '')
     .replace(/\s+/g, ' ')
     .trim();

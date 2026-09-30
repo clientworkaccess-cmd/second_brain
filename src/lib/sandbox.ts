@@ -2,10 +2,10 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { clusterPath } from './config';
-import { PAGE_DIRS } from './wiki';
+import { isPageFolder, type Layout } from './layout';
 
 /**
- * A throwaway copy of a cluster, for the planning pass.
+ * A throwaway copy of a wiki, for the planning pass.
  *
  * The planning prompt tells the agent not to write anything. That instruction
  * is worth having and is worth nothing on its own: the post-ingest check in
@@ -21,20 +21,17 @@ import { PAGE_DIRS } from './wiki';
  * Two placement rules:
  *
  *  - The copy lives in os.tmpdir(), never under WIKI_ROOT. listClusters() is a
- *    readdir of WIKI_ROOT filtered on "has an index.md", so a cluster copy
- *    parked there would appear in the sidebar as a real cluster.
- *  - Only what the planner reads gets copied. Not .git, and not raw/, which
- *    holds every document ever ingested and would be duplicated on every plan
- *    and every revision.
+ *    readdir of WIKI_ROOT, so a copy parked there would appear in the sidebar
+ *    as a wiki of its own.
+ *  - Only what the planner reads gets copied: the rules and the pages. Not
+ *    .git, and not the sources, which hold every document ever filed and would
+ *    be duplicated on every plan and every revision.
  */
 
-/** What the planner needs to reason about a cluster: scope, catalog, history. */
-const COPIED_FILES = ['SCHEMA.md', 'index.md', 'log.md'];
-
 export interface Sandbox {
-  /** The copied cluster — the agent's working directory for the planning run. */
+  /** The copied wiki: the agent's working directory for the planning run. */
   clusterDir: string;
-  /** The copied cluster's parent. Removed with everything in it when the run ends. */
+  /** The copy's parent. Removed with everything in it when the run ends. */
   root: string;
   /** Where the staged source was placed, relative to clusterDir. */
   sourceRelPath: string;
@@ -45,25 +42,25 @@ export interface Sandbox {
  * Build the sandbox. `sourceFile` is the staged upload, copied in so the agent
  * can read it at a path inside its own working directory.
  */
-export async function planningSandbox(cluster: string, sourceFile: string): Promise<Sandbox> {
+export async function planningSandbox(cluster: string, sourceFile: string, layout: Layout): Promise<Sandbox> {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'wiki-plan-'));
   const clusterDir = path.join(root, cluster);
   const from = clusterPath(cluster);
 
-  await fs.mkdir(clusterDir, { recursive: true });
+  await fs.mkdir(path.join(clusterDir, layout.pagesDir), { recursive: true });
 
-  for (const name of COPIED_FILES) {
-    await fs.copyFile(path.join(from, name), path.join(clusterDir, name)).catch(() => {
-      /* a cluster that has never been ingested into may not have all three */
-    });
-  }
+  // The rules. A wiki that has never been filed into may not have them yet.
+  await fs.copyFile(path.join(from, layout.rulesFile), path.join(clusterDir, layout.rulesFile)).catch(() => {});
 
-  for (const dir of PAGE_DIRS) {
-    await fs
-      .cp(path.join(from, dir), path.join(clusterDir, dir), { recursive: true })
-      .catch(() => {
-        /* the agent may not have scaffolded every directory yet */
-      });
+  // The pages: what lies beside the index, and every folder of pages.
+  const pagesFrom = path.join(from, layout.pagesDir);
+  const pagesTo = path.join(clusterDir, layout.pagesDir);
+  for (const entry of await fs.readdir(pagesFrom, { withFileTypes: true }).catch(() => [])) {
+    if (entry.isFile() && /\.md$/i.test(entry.name)) {
+      await fs.copyFile(path.join(pagesFrom, entry.name), path.join(pagesTo, entry.name)).catch(() => {});
+    } else if (entry.isDirectory() && isPageFolder(layout, entry.name)) {
+      await fs.cp(path.join(pagesFrom, entry.name), path.join(pagesTo, entry.name), { recursive: true }).catch(() => {});
+    }
   }
 
   // The source document, placed inside the sandbox so the prompt can reference

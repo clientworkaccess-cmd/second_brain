@@ -3,6 +3,7 @@ import { CHAT_TIMEOUT_MS, HttpError, assertClusterName, clusterPath } from '@/li
 import { exists } from '@/lib/clusters';
 import { chatPrompt } from '@/lib/chat';
 import { agentFailure, runClaude } from '@/lib/claude';
+import { layoutOf, type Layout } from '@/lib/layout';
 import { sseResponse } from '@/lib/sse';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +22,7 @@ export const runtime = 'nodejs';
 export async function POST(req: NextRequest) {
   let cluster: string;
   let question: string;
+  let layout: Layout;
 
   try {
     const body = await req.json();
@@ -29,6 +31,7 @@ export async function POST(req: NextRequest) {
     if (!question) throw new HttpError(400, 'Ask something');
     if (question.length > 4000) throw new HttpError(400, 'That question is too long');
     if (!(await exists(clusterPath(cluster)))) throw new HttpError(404, `No cluster named "${cluster}"`);
+    layout = await layoutOf(cluster);
   } catch (err) {
     if (err instanceof HttpError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
@@ -36,8 +39,9 @@ export async function POST(req: NextRequest) {
 
   const run = runClaude({
     mode: 'chat',
-    prompt: chatPrompt(question),
+    prompt: chatPrompt(question, layout),
     cwd: clusterPath(cluster),
+    layout,
     timeoutMs: CHAT_TIMEOUT_MS,
   });
 
