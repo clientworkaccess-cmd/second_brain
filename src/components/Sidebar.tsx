@@ -12,6 +12,7 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  ListChecks,
   MessageSquare,
   Waypoints,
 } from 'lucide-react';
@@ -139,6 +140,9 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
         </Link>
         <Link className={`icon-button${pathname === `${home}/ask` ? ' active' : ''}`} href={`${home}/ask`} title="Ask a question">
           <MessageSquare size={16} />
+        </Link>
+        <Link className={`icon-button${pathname === `${home}/check` ? ' active' : ''}`} href={`${home}/check`} title="Check the wiki against its rules">
+          <ListChecks size={16} />
         </Link>
         <Link className="icon-button" href="/" title="All clusters">
           <FolderOpen size={16} />

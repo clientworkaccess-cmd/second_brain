@@ -275,6 +275,111 @@ export async function lintAfterIngest(cluster: string, before: Before): Promise<
   };
 }
 
+/** One thing the whole-wiki check found, with the page it is about where there is one. */
+export interface Remark {
+  code:
+    | 'orphan-page'
+    | 'broken-link'
+    | 'index-missing-page'
+    | 'index-entry-to-nothing'
+    | 'often-mentioned'
+    | 'page-block'
+    | 'agent-config-file';
+  severity: Severity;
+  detail: string;
+  /** The page concerned, as a slug, when there is one. */
+  slug: string | null;
+}
+
+export interface WikiReport {
+  checkedAt: string;
+  pages: number;
+  remarks: Remark[];
+}
+
+/**
+ * The whole wiki, held to its rules: what a lint on request finds, as the
+ * rules of a hand-kept wiki describe it. Nothing is changed; it is a report.
+ *
+ * Unlike the check after a filing, which looks at the pages that filing
+ * touched, this looks at every page, and at the index both ways: pages the
+ * index does not list, and entries in the index that lead nowhere.
+ */
+export async function checkWiki(cluster: string): Promise<WikiReport> {
+  const wiki = await loadWiki(cluster, { fresh: true });
+  const { layout } = wiki;
+  const remarks: Remark[] = [];
+  const all = [...wiki.entries.values()].filter((entry) => !isCatalogue(entry.slug));
+
+  // Links, both ways.
+  const inbound = new Set<string>();
+  const missing = new Map<string, { label: string; from: Set<string> }>();
+  for (const entry of all) {
+    for (const target of entry.links) {
+      const slug = resolveLink(wiki.names, target);
+      if (!slug) {
+        const key = target.toLowerCase();
+        const seen = missing.get(key) ?? { label: target, from: new Set<string>() };
+        seen.from.add(entry.slug);
+        missing.set(key, seen);
+        continue;
+      }
+      if (slug !== entry.slug) inbound.add(slug);
+    }
+  }
+  for (const entry of all) {
+    if (entry.dir === '') continue; // the overview and the registry are reached from the index
+    if (!inbound.has(entry.slug)) {
+      remarks.push({ code: 'orphan-page', severity: 'warning', slug: entry.slug, detail: `"${entry.title}" is linked from no other page.` });
+    }
+  }
+  for (const [, { label, from }] of missing) {
+    const pages = [...from];
+    if (pages.length >= 2) {
+      remarks.push({
+        code: 'often-mentioned',
+        severity: 'warning',
+        slug: null,
+        detail: `[[${label}]] is linked from ${pages.length} pages and has no page of its own.`,
+      });
+    } else {
+      const page = wiki.entries.get(pages[0]);
+      remarks.push({ code: 'broken-link', severity: 'warning', slug: pages[0], detail: `"${page?.title ?? pages[0]}" links to [[${label}]], which does not exist.` });
+    }
+  }
+
+  // The index, both ways.
+  const index = wiki.entries.get('index');
+  if (index) {
+    const lower = index.body.toLowerCase();
+    for (const entry of all) {
+      const name = (entry.slug.split('/').pop() ?? entry.slug).toLowerCase();
+      const listed =
+        lower.includes(`[[${entry.title.toLowerCase()}`) || lower.includes(`[[${name}`) || lower.includes(entry.slug.toLowerCase()) || lower.includes(name.replace(/-/g, ' '));
+      if (!listed) remarks.push({ code: 'index-missing-page', severity: 'warning', slug: entry.slug, detail: `"${entry.title}" is not listed in the index.` });
+    }
+    for (const target of index.links) {
+      if (!resolveLink(wiki.names, target)) {
+        remarks.push({ code: 'index-entry-to-nothing', severity: 'warning', slug: 'index', detail: `The index lists [[${target}]], which does not exist.` });
+      }
+    }
+  }
+
+  // Every page's block, against the rules.
+  for (const entry of all) {
+    for (const problem of pageProblems(entry, layout, wiki.facets)) {
+      remarks.push({ code: 'page-block', severity: 'warning', slug: entry.slug, detail: `"${entry.title}" ${problem}.` });
+    }
+  }
+
+  // Files that would steer a later run.
+  for (const file of await agentConfigFiles(cluster, layout)) {
+    remarks.push({ code: 'agent-config-file', severity: 'error', slug: null, detail: `"${file}" is in the wiki. Files of that name can carry instructions into later runs. Remove it and check what wrote it.` });
+  }
+
+  return { checkedAt: new Date().toISOString(), pages: all.length, remarks };
+}
+
 const STEERING_FILES = new Set(['claude.md', 'claude.local.md', 'agents.md', '.mcp.json']);
 const STEERING_DIRS = new Set(['.claude']);
 
