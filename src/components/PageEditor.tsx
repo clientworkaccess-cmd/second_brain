@@ -10,6 +10,7 @@ import { baseExtensions, livePreviewCompartment, livePreviewExtension } from '@/
 import { cycleHeading, insertLink, toggleBold, toggleBulletList, toggleInlineCode, toggleItalic, toggleQuote, toggleStrikethrough, toggleTaskList } from '@/editor/format';
 import { MOD } from '@/editor/links';
 import { targetsOf } from '@/editor/wikilinkCompletion';
+import { assetHref, resolveImagePath } from '@/lib/assetPaths';
 import { pageHref, resolveLink } from '@/lib/wikilinks';
 
 /**
@@ -45,6 +46,8 @@ export function PageEditor({
   isNew,
   links,
   known,
+  images,
+  fromDir,
 }: {
   cluster: string;
   slug: string;
@@ -56,6 +59,10 @@ export function PageEditor({
   links: { link: string; title: string }[];
   /** What every page is known by -> its slug, for following a link. */
   known: [string, string][];
+  /** The images the wiki has, as paths from its root, for `![[name.png]]`. */
+  images: string[];
+  /** The page's own folder from the wiki's root, for images named by a relative path. */
+  fromDir: string;
 }) {
   const router = useRouter();
   const hostRef = useRef<HTMLDivElement>(null);
@@ -63,6 +70,7 @@ export function PageEditor({
   const versionRef = useRef(version);
   const dirtyRef = useRef(isNew);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const imagesRef = useRef(images);
   const [status, setStatus] = useState<Status>(isNew ? 'unsaved' : 'saved');
   const [conflict, setConflict] = useState<{ version: string; text: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -128,7 +136,26 @@ export function PageEditor({
                 const found = resolveLink(knownMap, target);
                 if (found) router.push(pageHref(cluster, found));
               },
-              resolveImage: () => null,
+              resolveImage: (target) => {
+                const rel = resolveImagePath(imagesRef.current, target, fromDir);
+                return rel ? assetHref(cluster, rel) : null;
+              },
+              // An image pasted or dropped in goes into the wiki's raw/assets, then into the page.
+              onImage: async (file) => {
+                const form = new FormData();
+                form.append('cluster', cluster);
+                form.append('file', file, file.name);
+                try {
+                  const res = await fetch('/api/asset', { method: 'POST', body: form });
+                  const data = await res.json();
+                  if (!res.ok) throw new Error(data.error ?? 'The image was not added');
+                  imagesRef.current = [...imagesRef.current, String(data.path)];
+                  return String(data.embed);
+                } catch (err) {
+                  setError(err instanceof Error ? err.message : 'The image was not added');
+                  return null;
+                }
+              },
               targets: targetsOf(links),
             },
             stored,

@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
+import { listImages } from '@/lib/assets';
 import { HttpError } from '@/lib/config';
-import { layoutOf } from '@/lib/layout';
+import { inPages, layoutOf } from '@/lib/layout';
 import { readPageSource, templateFor } from '@/lib/pages';
 import { linkIndex, listPages } from '@/lib/wiki';
 import { Center } from '@/components/frame/Frame';
@@ -33,7 +34,9 @@ export default async function EditPage({
   }
   if (!source.exists && !title) notFound();
 
-  const [layout, listing, known] = await Promise.all([layoutOf(cluster), listPages(cluster), linkIndex(cluster)]);
+  const [layout, listing, known, images] = await Promise.all([layoutOf(cluster), listPages(cluster), linkIndex(cluster), listImages(cluster)]);
+  const inside = inPages(layout, slug);
+  const fromDir = inside.includes('/') ? inside.slice(0, inside.lastIndexOf('/')) : '';
   const pages = [...listing.folders.flatMap((f) => f.pages), ...listing.root];
   // How a link is written in this wiki: by the page's name, or by its file name.
   const links = pages.map((page) => ({ link: layout.links === 'slug' ? (page.slug.split('/').pop() ?? page.slug) : page.title, title: page.title }));
@@ -42,7 +45,7 @@ export default async function EditPage({
 
   return (
     <Center scope={cluster} tab={{ href: `/c/${cluster}/edit/${slug}`, title: `Editing ${shown}` }} home={`/c/${cluster}`} scroll={false}>
-      <PageEditor cluster={cluster} slug={slug} text={text} version={source.version} isNew={!source.exists} links={links} known={[...known]} />
+      <PageEditor cluster={cluster} slug={slug} text={text} version={source.version} isNew={!source.exists} links={links} known={[...known]} images={images} fromDir={fromDir} />
     </Center>
   );
 }

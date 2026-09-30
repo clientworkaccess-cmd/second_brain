@@ -238,8 +238,10 @@ function buildLivePreview(view: EditorView): DecorationSet {
             return false
           }
           case 'Image': {
-            if (touches(node.from, node.to)) return
             const url = node.node.getChild('URL')
+            // `![[photo.png]]` parses as an image without a URL. It is an embed, and the scan below draws it.
+            if (!url && doc.sliceString(node.from, node.from + 3) === '![[') return false
+            if (touches(node.from, node.to)) return
             const src = url ? doc.sliceString(url.from, url.to) : ''
             const alt = imageAlt(node.node, doc.sliceString.bind(doc))
             const resolved = isExternalHref(src) ? src : resolveImage(safeDecode(src))

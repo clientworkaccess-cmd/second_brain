@@ -26,7 +26,8 @@ export type AuditEvent =
   | 'filing-automatic'
   | 'filing-discarded'
   | 'filing-undone'
-  | 'page-saved';
+  | 'page-saved'
+  | 'image-added';
 
 export interface AuditEntry {
   at: string;

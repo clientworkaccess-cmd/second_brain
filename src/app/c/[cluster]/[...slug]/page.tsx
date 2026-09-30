@@ -1,7 +1,9 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { FileText, PenLine } from 'lucide-react';
+import { listImages } from '@/lib/assets';
 import { HttpError } from '@/lib/config';
+import { inPages, layoutOf } from '@/lib/layout';
 import { outlineOf, wordCount } from '@/lib/outline';
 import { backlinksOf, linkIndex, readPage } from '@/lib/wiki';
 import { pageHref, resolveLink } from '@/lib/wikilinks';
@@ -28,7 +30,9 @@ export default async function WikiPage({
     throw err;
   }
 
-  const [titles, backlinks] = await Promise.all([linkIndex(cluster), backlinksOf(cluster, page.slug)]);
+  const [titles, backlinks, images, layout] = await Promise.all([linkIndex(cluster), backlinksOf(cluster, page.slug), listImages(cluster), layoutOf(cluster)]);
+  const inside = inPages(layout, page.slug);
+  const fromDir = inside.includes('/') ? inside.slice(0, inside.lastIndexOf('/')) : '';
   const outline = outlineOf(page.body);
   const href = pageHref(cluster, page.slug);
 
@@ -37,7 +41,7 @@ export default async function WikiPage({
       <Center scope={cluster} tab={{ href, title: page.title }} home={`/c/${cluster}`} hasRight>
         <article className="preview">
           <Properties cluster={cluster} properties={page.properties} facets={page.facets} problems={page.problems} />
-          <MarkdownView source={page.body} cluster={cluster} titles={titles} outline={outline} />
+          <MarkdownView source={page.body} cluster={cluster} titles={titles} outline={outline} images={images} fromDir={fromDir} />
         </article>
       </Center>
 

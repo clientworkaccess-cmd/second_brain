@@ -345,6 +345,41 @@ try {
     if (res.status < 400) refused.push(`${slug}: ${res.status}`);
   }
   check('nothing but a page can be written this way', refused.length === 0, refused.join(', '));
+
+  // ------------------------------------------------------------- images
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  await fs.mkdir(path.join(app.wiki, 'operations', 'raw', 'assets'), { recursive: true });
+  await fs.writeFile(path.join(app.wiki, 'operations', 'raw', 'assets', 'photo.png'), PNG);
+  await new Promise((r) => setTimeout(r, 400)); // the list of images a page view made is trusted for a moment
+  const PHOTO = '/api/asset?cluster=operations&path=raw%2Fassets%2Fphoto.png';
+  const image = await get(PHOTO, { cookie });
+  check('an image of the wiki is served as itself', image.status === 200 && image.headers.get('content-type') === 'image/png' && image.headers.get('x-content-type-options') === 'nosniff' && (await image.arrayBuffer()).byteLength === PNG.length, `${image.status} ${image.headers.get('content-type')}`);
+  const unchanged = await get(PHOTO, { cookie, 'if-none-match': image.headers.get('etag') ?? '' });
+  check('an image the browser already has is not sent again', unchanged.status === 304, String(unchanged.status));
+  const served = [];
+  for (const p of ['index.md', 'SCHEMA.md', '../outside.png', '.dashboard/x.png', '.git/config', 'raw/assets/nothing.png', 'raw/assets']) {
+    if ((await get(`/api/asset?cluster=operations&path=${encodeURIComponent(p)}`, { cookie })).status === 200) served.push(p);
+  }
+  check('nothing but an image of the wiki is served', served.length === 0, served.join(', '));
+  check('images need a session', (await fetch(`${base}${PHOTO}`)).status === 401);
+  await put({ cluster: 'operations', slug: 'entities/with-image', text: '# With Image\n\n![[photo.png]] then ![[photo.png|120]] then ![[gone.png]] then ![remote](https://example.com/x.png)\n', force: true });
+  const withImage = await (await get('/c/operations/entities/with-image', { cookie })).text();
+  const shown = (withImage.match(/<img[^>]+class="internal-embed"[^>]+src="\/api\/asset\?cluster=operations&amp;path=raw%2Fassets%2Fphoto\.png"/g) ?? []).length;
+  check('a page shows its images, at the width asked for, and marks one that is not there', shown === 2 && /width="120"/.test(withImage) && /is-unresolved[^>]*>gone\.png/.test(withImage), shown === 2 ? '2 shown' : `${shown} shown: ${(withImage.match(/<p>[^]{0,600}/) ?? ['(no paragraph)'])[0].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300)}`);
+  check('a remote image is left out', /\[image omitted\]/.test(withImage) && !/example\.com\/x\.png/.test(withImage));
+  const form = new FormData();
+  form.append('cluster', 'operations');
+  form.append('file', new Blob([PNG], { type: 'image/png' }), 'Pasted.png');
+  const addedImage = await fetch(`${base}/api/asset`, { method: 'POST', body: form, headers: { cookie } });
+  const addedData = await addedImage.json();
+  check('an image can be added from the editor', addedImage.status === 201 && addedData.path === 'raw/assets/Pasted.png' && addedData.embed === '![[Pasted.png]]', `${addedImage.status} ${JSON.stringify(addedData)}`);
+  check('and is then served', (await get(addedData.href ?? '/nothing', { cookie })).status === 200);
+  const images = await (await get('/api/assets?cluster=operations', { cookie })).json();
+  check('the editor can ask which images there are', Array.isArray(images.images) && images.images.includes('raw/assets/Pasted.png') && images.images.includes('raw/assets/photo.png'), JSON.stringify(images.images));
+  const notImage = new FormData();
+  notImage.append('cluster', 'operations');
+  notImage.append('file', new Blob(['hello'], { type: 'text/plain' }), 'notes.txt');
+  check('only an image can be added this way', (await fetch(`${base}/api/asset`, { method: 'POST', body: notImage, headers: { cookie } })).status === 400);
   check('the rules are as they were', (await fs.readFile(path.join(app.wiki, 'operations', 'SCHEMA.md'), 'utf8')).length > 100 && !(await fs.readdir(path.join(app.wiki, 'operations'))).includes('CLAUDE.md'));
   const anon = await fetch(`${base}/api/page?cluster=operations&slug=entities/warehouse-team`);
   check('the editor needs a session', anon.status === 401, String(anon.status));
@@ -409,7 +444,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 

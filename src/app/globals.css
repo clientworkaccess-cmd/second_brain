@@ -907,6 +907,13 @@
     color: var(--text-muted);
     font-style: italic;
   }
+  .preview img.internal-embed {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 8px 0;
+    border-radius: 4px;
+  }
 
   /* ---- A new page, from the page tree ---- */
 

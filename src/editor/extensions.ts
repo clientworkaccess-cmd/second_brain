@@ -9,6 +9,7 @@ import { drawSelection, dropCursor, EditorView, keymap, placeholder, rectangular
 import { formatKeymap } from './format';
 import { frontmatterParser } from './frontmatterParser';
 import { hasFollowModifier } from './links';
+import { imagePaste } from './imagePaste';
 import { headingLines, imageResolver, livePreview } from './livePreview';
 import { editorHighlighting, editorTheme } from './theme';
 import { linkTargets, wikilinkCompletion, type targetsOf } from './wikilinkCompletion';
@@ -29,6 +30,8 @@ export interface EditorHooks {
   resolveImage: (target: string) => string | null;
   /** What `[[` offers: see targetsOf(). */
   targets: ReturnType<typeof targetsOf>;
+  /** An image pasted or dropped in -> the embed to write for it, once it is in the wiki (null when it was not added). */
+  onImage?: (file: File) => Promise<string | null>;
 }
 
 /** Live preview is switched on and off at runtime through this compartment. */
@@ -58,6 +61,7 @@ export function baseExtensions(hooks: EditorHooks, live: boolean): Extension[] {
     headingLines,
     wikilinkDecorations,
     imageResolver.of(hooks.resolveImage),
+    hooks.onImage ? imagePaste(hooks.onImage) : [],
     livePreviewCompartment.of(livePreviewExtension(live)),
     placeholder('Start writing…'),
     EditorView.domEventHandlers({
