@@ -19,9 +19,10 @@
  *
  * Switches, passed through CLAUDE_ARGS:
  *   --skip index,log,sandbox   misbehave: leave index.md or log.md alone, or write during planning
- *   --touch schema,source,settings
+ *   --touch schema,source,settings,facets
  *                              misbehave: change the rules file, the source document being filed,
- *                              or (in a brain) the settings a person keeps in the folder
+ *                              (in a brain) the settings a person keeps in the folder, or write a
+ *                              page whose block breaks the rules
  *   --fail auth|limit          end the way the real binary does when signed out or out of usage
  */
 
@@ -213,6 +214,9 @@ async function makePlan() {
     await fs.writeFile(at(INDEX), '# Clobbered by the planning pass\n');
   }
 
+  // In a brain every page in the plan says which business it concerns and what
+  // kind of work it is about, with values the wiki knows.
+  const about = BRAIN ? { business: [await firstBusiness()], area: ['operations', 'customer'] } : {};
   const plan = {
     pages: [
       // A wiki that keeps a page for every source gets one for this document.
@@ -224,6 +228,7 @@ async function makePlan() {
               summary: 'What the note says about returns and refunds',
               quote: 'The warehouse team checks every returned item before we release the refund.',
               existing: false,
+              ...about,
             },
           ]
         : []),
@@ -233,6 +238,7 @@ async function makePlan() {
         summary: 'Runs the returns floor and inspects items before refunds',
         quote: 'The warehouse team checks every returned item before we release the refund.',
         existing: true,
+        ...about,
       },
       {
         kind: 'entity',
@@ -240,6 +246,7 @@ async function makePlan() {
         summary: 'Where a customer starts a return',
         quote: 'Customers open a return through the portal, not by emailing support.',
         existing: false,
+        ...about,
       },
       {
         kind: 'concept',
@@ -247,6 +254,7 @@ async function makePlan() {
         summary: 'How refunds are assessed, approved and paid',
         quote: 'Refunds are released once the item is confirmed resalable.',
         existing: false,
+        ...about,
       },
     ],
     decisions: [
@@ -290,6 +298,13 @@ function page({ title, type, tags, source, body }) {
     body.trim(),
     '',
   ].join('\n');
+}
+
+/** A business the registry has: the first one that is not the whole group. */
+async function firstBusiness() {
+  const registry = await fs.readFile(at('wiki/businesses.md'), 'utf8').catch(() => '');
+  const slugs = [...registry.matchAll(/^\|\s*`([a-z0-9-]+)`\s*\|/gm)].map((m) => m[1]);
+  return slugs.find((slug) => slug !== 'group') ?? 'group';
 }
 
 /** "source/2f6c…__returns-note.md" -> "Returns Note". */
@@ -488,10 +503,7 @@ async function ingestIntoBrain() {
   await say('Looking for pages this overlaps with.');
   await use('Glob', { pattern: 'wiki/**/*.md' });
 
-  // A business the registry has. The first one that is not the whole group.
-  const registry = await fs.readFile(at('wiki/businesses.md'), 'utf8').catch(() => '');
-  const slugs = [...registry.matchAll(/^\|\s*`([a-z0-9-]+)`\s*\|/gm)].map((m) => m[1]);
-  const business = [slugs.find((slug) => slug !== 'group') ?? 'group'];
+  const business = [await firstBusiness()];
   const area = ['operations', 'customer'];
 
   await write(
@@ -610,6 +622,18 @@ ${label} (filed ${new Date().toISOString()})
   if (TOUCH.has('settings')) {
     await fs.mkdir(at('.claude'), { recursive: true });
     await fs.writeFile(at('.claude/settings.json'), '{ "permissions": { "allow": ["Bash"] } }\n');
+  }
+  // A page whose block breaks the rules: a business the registry does not
+  // have, one area too many, a type that is not the folder's.
+  if (TOUCH.has('facets')) {
+    await write(
+      'wiki/entities/made-up-co.md',
+      brainPage({ title: 'Made Up Co', type: 'concept', business: ['made-up-co'], area: ['finance', 'sales', 'people', 'legal'], sources: [sourceSlug], body: 'A company the registry does not list, mentioned by the [[warehouse-team]] and the [[returns-portal]].' }),
+    );
+    if (!SKIP.has('index')) {
+      const index = await fs.readFile(at(INDEX), 'utf8');
+      await fs.writeFile(at(INDEX), listed(index, 'Entities', 'made-up-co', '- [[made-up-co]]: a company the registry does not list · made-up-co · finance'));
+    }
   }
 
   await say('Done.', 0);

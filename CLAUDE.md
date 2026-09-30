@@ -19,8 +19,8 @@ runs, which loads no settings or instruction files from anywhere.
   behaviour, and for any walk-through in a browser.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
-- `npm run check` — stream, auth, pipeline, lint, page, layout and design
-  checks, all against the stand-in. `npm run typecheck` — tsc.
+- `npm run check` — stream, auth, pipeline, lint, page, layout, facet and
+  design checks, all against the stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
 - `npm run check:real` — the app's exact command line against the real binary.
@@ -87,6 +87,10 @@ layout, or the listing from `lib/wiki.ts`. The stand-in tells the two apart
 the same way. `scripts/gen-brain.mjs` makes a brain out of nothing for the
 checks; a real one is never used in a check.
 
+`lib/facets.ts` is the facets: read from the wiki's own registry page and
+rules file on every scan, never kept here; `pageProblems` says what a block
+gets wrong, and is what the check after filing and the page view both show.
+
 `lib/wiki.ts` reads a wiki once and keeps it in memory, on `globalThis` like
 the jobs. It looks at the folders again on every call, which is cheap, and
 reads only files whose size or time changed. Anything that compares before
@@ -118,5 +122,5 @@ server; the deploy workflow is still on manual trigger.
 
 The interface follows the desktop app since the `second-brain-ui` change: same
 tokens, same frame, plus search, backlinks, outline and page properties. Since
-`wiki-layout`, a wiki in the brain layout can be brought in as it is; its
-facets are not read yet.
+`wiki-layout` a wiki in the brain layout can be brought in as it is, and since
+`facets` its facets are read, checked, filtered and drawn.

@@ -24,6 +24,7 @@ export interface PlanPage {
   summary: string;
   quote: string;
   existing: boolean;
+  facets?: Record<string, string[]>;
 }
 
 export interface Plan {
@@ -47,6 +48,14 @@ const KIND_LABEL: Record<string, string> = {
   synthesis: 'analysis or answer',
 };
 const kindLabel = (kind: string): string => KIND_LABEL[kind] ?? kind;
+
+/** "person or thing · harbour-bakery · finance, operations": what the page is, and what it is about. */
+function noteOf(page: PlanPage): string {
+  const facets = Object.values(page.facets ?? {})
+    .filter((values) => values.length > 0)
+    .map((values) => values.join(', '));
+  return [kindLabel(page.kind), ...facets].join(' · ');
+}
 
 export function PlanReview({
   plan,
@@ -96,7 +105,7 @@ export function PlanReview({
       {created.length > 0 && (
         <Section title="New to the wiki">
           {created.map((p, i) => (
-            <Item key={i} title={p.name} note={kindLabel(p.kind)} body={p.summary} quote={p.quote} />
+            <Item key={i} title={p.name} note={noteOf(p)} body={p.summary} quote={p.quote} />
           ))}
         </Section>
       )}
@@ -104,7 +113,7 @@ export function PlanReview({
       {updated.length > 0 && (
         <Section title="Already known, and something new about it">
           {updated.map((p, i) => (
-            <Item key={i} title={p.name} note={kindLabel(p.kind)} body={p.summary} quote={p.quote} />
+            <Item key={i} title={p.name} note={noteOf(p)} body={p.summary} quote={p.quote} />
           ))}
         </Section>
       )}

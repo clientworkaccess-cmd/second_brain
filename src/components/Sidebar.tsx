@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -16,6 +16,7 @@ import {
   Waypoints,
 } from 'lucide-react';
 import type { Cluster } from '@/lib/clusters';
+import type { Facet } from '@/lib/facets';
 import type { SearchHit } from '@/lib/search';
 import type { Listing, PageRef } from '@/lib/wiki';
 import { pageHref } from '@/lib/wikilinks';
@@ -31,6 +32,31 @@ const nameOf = (page: PageRef): string => (page.slug === 'index' ? 'Index' : pag
 /** A wiki with this many pages opens with its folders closed: the tree is for finding a folder first. */
 const MANY_PAGES = 60;
 
+/** One value per facet, or none. `{ business: 'harbour-bakery' }`. */
+type Filters = Record<string, string>;
+
+/** The filters, kept for as long as the browser tab is, per wiki. */
+function rememberedFilters(cluster: string): Filters {
+  try {
+    return JSON.parse(sessionStorage.getItem(`sb-filter:${cluster}`) ?? '{}') as Filters;
+  } catch {
+    return {};
+  }
+}
+
+function remember(cluster: string, filters: Filters): void {
+  try {
+    sessionStorage.setItem(`sb-filter:${cluster}`, JSON.stringify(filters));
+  } catch {
+    /* the filter lasts for this page */
+  }
+}
+
+/** Whether a page carries every value the filters ask for. */
+function passes(page: PageRef, filters: Filters): boolean {
+  return Object.entries(filters).every(([key, value]) => !value || (page.facets[key] ?? []).includes(value));
+}
+
 export function PageSidebar({ cluster, listing }: { cluster: string; listing: Listing }) {
   const pathname = decodeURIComponent(usePathname());
   const [panel, setPanel] = useState<'pages' | 'search'>('pages');
@@ -40,6 +66,33 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
   const home = `/c/${cluster}`;
   // The index is the front page of the wiki. It is listed first among the pages beside it.
   const beside = [...listing.root].sort((a, b) => Number(b.slug === 'index') - Number(a.slug === 'index'));
+
+  // A link from a page's block arrives as ?business=harbour-bakery. That sets
+  // the filter; the filter then stays until it is cleared, page after page.
+  const params = useSearchParams();
+  const [filters, setFilters] = useState<Filters>({});
+  useEffect(() => {
+    const next = { ...rememberedFilters(cluster) };
+    let asked = false;
+    for (const facet of listing.facets) {
+      const value = params.get(facet.key);
+      if (value === null) continue;
+      next[facet.key] = value.toLowerCase();
+      asked = true;
+    }
+    setFilters(next);
+    if (asked) remember(cluster, next);
+  }, [cluster, params, listing.facets]);
+  const setFilter = (key: string, value: string): void => {
+    const next = { ...filters, [key]: value };
+    setFilters(next);
+    remember(cluster, next);
+  };
+  const filtering = Object.values(filters).some(Boolean);
+  const folders = useMemo(
+    () => (filtering ? listing.folders.map((folder) => ({ ...folder, pages: folder.pages.filter((page) => passes(page, filters)) })) : listing.folders),
+    [listing.folders, filters, filtering],
+  );
 
   const toggle = (dir: string): void =>
     setCollapsed((was) => {
@@ -94,10 +147,13 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
 
       <div className="sidebar-body">
         {panel === 'search' ? (
-          <SearchPanel cluster={cluster} />
+          <SearchPanel cluster={cluster} listing={listing} filters={filters} />
         ) : (
           <nav className="tree" aria-label="Pages">
-            {listing.folders.map(({ dir, label, pages: refs }) => {
+            {listing.facets.length > 0 && (
+              <FacetFilters facets={listing.facets} filters={filters} onChange={setFilter} />
+            )}
+            {folders.map(({ dir, label, pages: refs }) => {
               const open = !collapsed.has(dir);
               return (
                 <div key={dir}>
@@ -150,7 +206,35 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
   );
 }
 
-function SearchPanel({ cluster }: { cluster: string }) {
+/** One drop-down per facet. The first choice in each is no filter. */
+function FacetFilters({ facets, filters, onChange }: { facets: Facet[]; filters: Filters; onChange: (key: string, value: string) => void }) {
+  return (
+    <div className="tree-filters">
+      {facets.map((facet) => {
+        const current = filters[facet.key] ?? '';
+        return (
+          <select
+            key={facet.key}
+            className={`tree-filter${current ? ' set' : ''}`}
+            aria-label={`Show only pages with this ${facet.label.toLowerCase()}`}
+            value={current}
+            onChange={(e) => onChange(facet.key, e.target.value)}
+          >
+            <option value="">{`Every ${facet.label.toLowerCase()}`}</option>
+            {facet.values.map((value) => (
+              <option key={value.value} value={value.value}>
+                {value.label}
+              </option>
+            ))}
+            {current && !facet.values.some((value) => value.value === current) && <option value={current}>{current}</option>}
+          </select>
+        );
+      })}
+    </div>
+  );
+}
+
+function SearchPanel({ cluster, listing, filters }: { cluster: string; listing: Listing; filters: Filters }) {
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +267,16 @@ function SearchPanel({ cluster }: { cluster: string }) {
 
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 
+  // The tree's filters apply here too: a search inside one business finds pages of that business.
+  const byslug = useMemo(() => new Map([...listing.folders.flatMap((f) => f.pages), ...listing.root].map((page) => [page.slug, page])), [listing]);
+  const shown = useMemo(() => {
+    if (!hits || !Object.values(filters).some(Boolean)) return hits;
+    return hits.filter((hit) => {
+      const page = byslug.get(hit.slug);
+      return page ? passes(page, filters) : true;
+    });
+  }, [hits, filters, byslug]);
+
   return (
     <div className="search-panel">
       <div className="search-box">
@@ -197,13 +291,14 @@ function SearchPanel({ cluster }: { cluster: string }) {
         />
       </div>
       {error && <div className="search-summary small" style={{ color: 'var(--danger)' }}>{error}</div>}
-      {hits && !error && (
+      {shown && !error && (
         <div className="search-summary muted small">
-          {hits.length === 0 ? 'Nothing found' : `${hits.length} ${hits.length === 1 ? 'page' : 'pages'}`}
+          {shown.length === 0 ? 'Nothing found' : `${shown.length} ${shown.length === 1 ? 'page' : 'pages'}`}
+          {hits && shown.length !== hits.length && ` of ${hits.length}, with the filters`}
         </div>
       )}
       <div className="search-results">
-        {(hits ?? []).map((hit) => (
+        {(shown ?? []).map((hit) => (
           <Link key={hit.slug} href={pageHref(cluster, hit.slug)} className="search-hit">
             <span className="search-hit-title">
               <Highlighted text={hit.title} terms={terms} />

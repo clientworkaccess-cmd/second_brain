@@ -1,3 +1,4 @@
+import type { Facet } from './facets';
 import { isCatalogue, loadWiki } from './wiki';
 import { pageHref, resolveLink } from './wikilinks';
 
@@ -20,6 +21,8 @@ export interface GraphNode {
   kind: string;
   degree: number;
   href: string | null;
+  /** What the page is about, by facet. Empty for a page nobody has written. */
+  facets: Record<string, string[]>;
 }
 
 export interface GraphLink {
@@ -34,6 +37,8 @@ export interface Graph {
   orphans: string[];
   /** What to call each kind, in the order of the page tree. */
   kinds: { kind: string; label: string }[];
+  /** The facets the pages can be grouped by, with the values the wiki allows. */
+  facets: Facet[];
 }
 
 export async function buildGraph(cluster: string): Promise<Graph> {
@@ -54,6 +59,7 @@ export async function buildGraph(cluster: string): Promise<Graph> {
       kind: entry.dir || ROOT,
       degree: 0,
       href: pageHref(cluster, entry.slug),
+      facets: entry.facets,
     });
   }
 
@@ -65,7 +71,7 @@ export async function buildGraph(cluster: string): Promise<Graph> {
         // Linked but never written. Kept in the graph on purpose: a dangling
         // link is a curation signal, and hiding it would hide the problem.
         const id = `${MISSING}:${target.toLowerCase()}`;
-        if (!nodes.has(id)) nodes.set(id, { id, label: target, kind: MISSING, degree: 0, href: null });
+        if (!nodes.has(id)) nodes.set(id, { id, label: target, kind: MISSING, degree: 0, href: null, facets: {} });
         links.push({ source: entry.slug, target: id });
         continue;
       }
@@ -98,6 +104,7 @@ export async function buildGraph(cluster: string): Promise<Graph> {
     links: unique,
     orphans: [...nodes.values()].filter((node) => node.kind !== MISSING && !inbound.has(node.id)).map((node) => node.id),
     kinds,
+    facets: wiki.facets,
   };
 }
 

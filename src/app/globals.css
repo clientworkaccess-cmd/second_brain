@@ -729,6 +729,108 @@
     color: var(--text-normal);
     border-color: var(--text-faint);
   }
+  .graph-toggle.active {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .graph-legend-row.clickable {
+    cursor: pointer;
+  }
+  .graph-legend-row.clickable:hover,
+  .graph-legend-row.focused {
+    color: var(--text-normal);
+  }
+  .graph-legend-row.focused .graph-legend-swatch {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  /* ---- Facet filters at the top of the page tree ---- */
+
+  .tree-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 8px 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tree-filter {
+    width: 100%;
+    padding: 4px 8px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-normal);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .tree-filter.set {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* ---- What the rules would change about a page's block ---- */
+
+  .properties-problems {
+    margin: 8px 0 2px;
+    padding-left: 18px;
+    color: var(--warning);
+  }
+  .properties-problems li {
+    margin: 2px 0;
+  }
+
+  /* ---- Callouts: > [!type] Title, as the desktop app draws them ---- */
+
+  .preview .callout {
+    --callout-color: 68, 138, 255;
+    margin: 0 0 1em;
+    padding: 10px 14px;
+    border: none;
+    border-left: 3px solid rgb(var(--callout-color));
+    border-radius: var(--radius);
+    background: rgba(var(--callout-color), 0.1);
+    color: var(--text-normal);
+  }
+  .preview .callout-title {
+    margin-bottom: 4px;
+    font-weight: 600;
+    color: rgb(var(--callout-color));
+  }
+  .preview .callout > :last-child {
+    margin-bottom: 0;
+  }
+  .preview .callout-tip,
+  .preview .callout-hint,
+  .preview .callout-success,
+  .preview .callout-check,
+  .preview .callout-done {
+    --callout-color: 8, 185, 78;
+  }
+  .preview .callout-warning,
+  .preview .callout-caution,
+  .preview .callout-attention,
+  .preview .callout-conflict,
+  .preview .callout-question,
+  .preview .callout-help,
+  .preview .callout-faq {
+    --callout-color: 236, 117, 0;
+  }
+  .preview .callout-danger,
+  .preview .callout-error,
+  .preview .callout-bug,
+  .preview .callout-failure,
+  .preview .callout-fail,
+  .preview .callout-missing {
+    --callout-color: 233, 49, 71;
+  }
+  .preview .callout-quote,
+  .preview .callout-cite {
+    --callout-color: 158, 158, 158;
+  }
+  .preview .callout-example {
+    --callout-color: 120, 82, 238;
+  }
 
   /* ---- Search panel ---- */
 
