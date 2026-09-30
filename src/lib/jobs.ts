@@ -11,7 +11,8 @@ import {
 import { ensureDashboardDirs, readIfPresent } from './clusters';
 import { agentFailure, runClaude } from './claude';
 import { indexFile, layoutOf, logFile, type Layout } from './layout';
-import { diffAgainst, snapshot, type IngestDiff } from './wiki';
+import { diffAgainst, loadWiki, snapshot, type IngestDiff } from './wiki';
+import type { Facet } from './facets';
 import { beforeIngest, lintAfterIngest, sourceFingerprints, type LintResult } from './lint';
 import { planningSandbox } from './sandbox';
 import { commitCluster, ensureRepo } from './git';
@@ -348,6 +349,7 @@ async function plan(
     if (!job.stagedPath) throw new Error('The staged document for this ingest is gone');
 
     const layout = await layoutOf(job.cluster);
+    const { facets } = await loadWiki(job.cluster);
 
     // Captured from the live cluster, not the copy — this is what approval is
     // checked against later.
@@ -363,7 +365,7 @@ async function plan(
 
     const run = runClaude({
       mode: 'plan',
-      prompt: planPrompt(job, layout, sandbox.sourceRelPath, planFile, revision),
+      prompt: planPrompt(job, layout, facets, sandbox.sourceRelPath, planFile, revision),
       cwd: sandbox.clusterDir,
       layout,
       timeoutMs: PLAN_TIMEOUT_MS,
@@ -393,6 +395,7 @@ async function plan(
         basis,
       },
       layout,
+      facets,
     );
 
     await writePlan(parsed);
@@ -518,11 +521,13 @@ async function execute(job: Job, approved: Plan): Promise<void> {
 function planPrompt(
   job: Job,
   layout: Layout,
+  facets: Facet[],
   sourceRelPath: string,
   planFile: string,
   revision: { feedback: string; previous: Plan | null } | null,
 ): string {
   const kinds = layout.types.map((t) => `"${t.type}"`).join(' | ');
+  const facetLines = facets.map((f) => `      "${f.key}": [${f.values.length ? `one or more of ${f.values.map((v) => `"${v.value}"`).join(', ')}` : 'values as the rules say'}]${f.max ? `  (at most ${f.max})` : ''},`);
   const lines = [
     // A machine-readable marker on its own line. The real agent can ignore it;
     // the local fake keys its behaviour off it rather than pattern-matching
@@ -555,7 +560,8 @@ function planPrompt(
     `      "name": "Mark Chen",`,
     `      "summary": "one line, as it would read in the index",`,
     `      "quote": "the verbatim sentence from the source that justifies this",`,
-    `      "existing": true if the wiki already has this and you would extend it }`,
+    `      "existing": true if the wiki already has this and you would extend it${facetLines.length ? ',' : ' }'}`,
+    ...(facetLines.length ? [...facetLines.slice(0, -1), `${facetLines[facetLines.length - 1].replace(/,$/, ' }')}`] : []),
     `  ],`,
     `  "decisions": [`,
     `    { "statement": "what was decided", "by": "who decided it, or null",`,
@@ -597,9 +603,13 @@ function planPrompt(
  * they were written for — and the approved plan is the specification.
  */
 function executePrompt(job: Job, layout: Layout, approved: Plan, rawPath: string): string {
-  const pages = approved.pages.map(
-    (p) => `- ${p.existing ? 'Update' : 'Create'} "${p.name}" (${p.kind}) at ${pathFor(p, layout)} — ${p.summary}`,
-  );
+  const pages = approved.pages.map((p) => {
+    const facets = Object.entries(p.facets)
+      .filter(([, values]) => values.length > 0)
+      .map(([key, values]) => `${key}: [${values.join(', ')}]`)
+      .join(' · ');
+    return `- ${p.existing ? 'Update' : 'Create'} "${p.name}" (${p.kind}) at ${pathFor(p, layout)} — ${p.summary}${facets ? ` — ${facets}` : ''}`;
+  });
   const links = approved.links.map(
     (l) => `- Link [[${linkFor(l.from, layout)}]] to [[${linkFor(l.to, layout)}]] — ${l.why}`,
   );

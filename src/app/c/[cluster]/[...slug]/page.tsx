@@ -36,7 +36,7 @@ export default async function WikiPage({
     <>
       <Center scope={cluster} tab={{ href, title: page.title }} home={`/c/${cluster}`} hasRight>
         <article className="preview">
-          <Properties properties={page.properties} />
+          <Properties cluster={cluster} properties={page.properties} facets={page.facets} problems={page.problems} />
           <MarkdownView source={page.body} cluster={cluster} titles={titles} outline={outline} />
         </article>
       </Center>
@@ -126,38 +126,70 @@ export default async function WikiPage({
   );
 }
 
-/** The block at the top of the page, as the desktop app shows it. */
-function Properties({ properties }: { properties: [string, string][] }) {
-  if (properties.length === 0) return null;
+/**
+ * The block at the top of the page, as the desktop app shows it. A facet's
+ * values are links to the pages that share them; tags are chips; and what the
+ * rules would find wrong with the block is said under it.
+ */
+function Properties({
+  cluster,
+  properties,
+  facets,
+  problems,
+}: {
+  cluster: string;
+  properties: [string, string][];
+  facets: Record<string, string[]>;
+  problems: string[];
+}) {
+  if (properties.length === 0 && problems.length === 0) return null;
+  const chips = (name: string, value: string) =>
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
   return (
     <details className="properties" open>
       <summary>Properties</summary>
-      <table>
-        <tbody>
-          {properties.map(([name, value]) => (
-            <tr key={name}>
-              <th scope="row">{name}</th>
-              <td>
-                {name === 'tags' ? (
-                  <span className="flex flex-wrap gap-1">
-                    {value
-                      .split(',')
-                      .map((tag) => tag.trim())
-                      .filter(Boolean)
-                      .map((tag) => (
+      {properties.length > 0 && (
+        <table>
+          <tbody>
+            {properties.map(([name, value]) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
+                <td>
+                  {name in facets ? (
+                    <span className="flex flex-wrap gap-1">
+                      {chips(name, value).map((item) => (
+                        <Link key={item} className="tag" href={`/c/${cluster}?${encodeURIComponent(name)}=${encodeURIComponent(item.toLowerCase())}`} title={`Every page with this ${name}`}>
+                          {item}
+                        </Link>
+                      ))}
+                    </span>
+                  ) : name === 'tags' ? (
+                    <span className="flex flex-wrap gap-1">
+                      {chips(name, value).map((tag) => (
                         <span key={tag} className="tag">
                           {tag}
                         </span>
                       ))}
-                  </span>
-                ) : (
-                  value
-                )}
-              </td>
-            </tr>
+                    </span>
+                  ) : (
+                    value
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {problems.length > 0 && (
+        <ul className="properties-problems" aria-label="What the rules would change about this block">
+          {problems.map((problem) => (
+            <li key={problem}>This page {problem}.</li>
           ))}
-        </tbody>
-      </table>
+        </ul>
+      )}
     </details>
   );
 }

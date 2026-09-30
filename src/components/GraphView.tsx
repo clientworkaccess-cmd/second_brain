@@ -8,6 +8,8 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type Simulation,
   type SimulationNodeDatum,
 } from 'd3-force';
@@ -15,14 +17,19 @@ import { RotateCcw } from 'lucide-react';
 import type { Graph, GraphNode } from '@/lib/graph';
 
 /**
- * The cluster as a graph: every page a node, every [[wikilink]] an edge.
+ * The wiki as a graph: every page a node, every [[wikilink]] an edge.
  *
  * Laid out and coloured like the desktop app's graph: a header above, the
- * graph filling the pane, the legend in its corner, one colour per folder. The
- * desktop draws with WebGL because a vault reaches thousands of links; a
- * cluster reaches tens to low hundreds of pages, where SVG is fast and needs no
- * more code than this. The layout and the data are separate (see lib/graph.ts),
- * so the renderer can be swapped without touching anything upstream.
+ * graph filling the pane, the legend in its corner, one colour per group. The
+ * pages are grouped by folder, or by a facet the wiki has, such as the
+ * business a page concerns: then a page with several is drawn as a pie, each
+ * group pulls its pages toward a place of its own, and a link across groups
+ * holds less. A row of the legend narrows the graph to one group.
+ *
+ * The desktop draws with WebGL because a vault reaches thousands of links; a
+ * wiki here reaches hundreds of pages, where SVG is enough. The layout and the
+ * data are separate (see lib/graph.ts), so the renderer can be swapped without
+ * touching anything upstream.
  */
 
 interface Node extends SimulationNodeDatum, GraphNode {}
@@ -31,20 +38,25 @@ interface Link {
   target: Node;
 }
 
+/** How the pages are grouped: by folder, or by one of the wiki's facets. */
+const FOLDERS = 'folders';
+
 /**
- * One hue per folder, spread by the golden angle over the folder names in
+ * One hue per group, spread by the golden angle over the group names in
  * alphabetical order. This is the desktop app's rule (core/graph.ts there), so
  * the same wiki gets the same kind of colours in both.
  */
-function folderHues(kinds: string[]): Map<string, number> {
-  const sorted = [...new Set(kinds)].filter((k) => k !== 'missing').sort((a, b) => a.localeCompare(b));
-  return new Map(sorted.map((kind, i) => [kind, (i * 137.508) % 360]));
+function huesOf(groups: string[]): Map<string, number> {
+  const sorted = [...new Set(groups)].filter((g) => g !== 'missing').sort((a, b) => a.localeCompare(b));
+  return new Map(sorted.map((group, i) => [group, (i * 137.508) % 360]));
 }
 
 /** Up to this many pages, every one is labelled. */
 const LABEL_ALL_UP_TO = 120;
 /** Past that, the pages with the most links keep their labels. */
 const LABELLED_HUBS = 30;
+/** A page in more groups than this shows the first few. */
+const MAX_SLICES = 4;
 
 const colourOf = (hue: number | undefined): string =>
   hue === undefined ? 'var(--text-faint)' : `hsl(${Math.round(hue)} 62% var(--graph-lightness))`;
@@ -58,6 +70,30 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
   const [, setTick] = useState(0);
   const [hovered, setHovered] = useState<string | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
+  const [mode, setMode] = useState<string>(FOLDERS);
+  const [focus, setFocus] = useState<string | null>(null);
+
+  // The grouping is remembered per wiki, as the desktop app remembers its area view.
+  useEffect(() => {
+    try {
+      const kept = localStorage.getItem(`sb-graph-mode:${cluster}`);
+      if (kept && (kept === FOLDERS || graph.facets.some((f) => f.key === kept))) setMode(kept);
+    } catch {
+      /* the default, then */
+    }
+  }, [cluster, graph.facets]);
+  const chooseMode = (next: string): void => {
+    setMode(next);
+    setFocus(null);
+    try {
+      localStorage.setItem(`sb-graph-mode:${cluster}`, next);
+    } catch {
+      /* lasts for this page */
+    }
+  };
+
+  const facet = graph.facets.find((f) => f.key === mode) ?? null;
+  const groupsOf = (node: GraphNode): string[] => (facet ? (node.facets[facet.key] ?? []).slice(0, MAX_SLICES) : node.kind === 'missing' ? [] : [node.kind]);
 
   // Build the simulation datasets once per graph. d3 mutates these in place.
   const { nodes, links } = useMemo(() => {
@@ -69,12 +105,35 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
     return { nodes, links };
   }, [graph]);
 
-  const hues = useMemo(() => folderHues(graph.nodes.map((n) => n.kind)), [graph]);
+  const hues = useMemo(() => huesOf(nodes.flatMap(groupsOf)), [nodes, mode]); // eslint-disable-line react-hooks/exhaustive-deps
   const counts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const node of graph.nodes) map.set(node.kind, (map.get(node.kind) ?? 0) + 1);
+    for (const node of nodes) for (const group of groupsOf(node)) map.set(group, (map.get(group) ?? 0) + 1);
+    map.set('missing', nodes.filter((n) => n.kind === 'missing').length);
+    map.set('none', nodes.filter((n) => n.kind !== 'missing' && groupsOf(n).length === 0).length);
     return map;
-  }, [graph]);
+  }, [nodes, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** What the legend lists, in the wiki's own order: the folders, or the facet's values, then whatever else pages carry. */
+  const legend = useMemo(() => {
+    const named = facet ? facet.values.map((v) => ({ group: v.value, label: v.label })) : graph.kinds.map((k) => ({ group: k.kind, label: k.label }));
+    const known = new Set(named.map((n) => n.group));
+    const extra = [...hues.keys()].filter((group) => !known.has(group)).map((group) => ({ group, label: group }));
+    return [...named, ...extra].filter(({ group }) => hues.has(group));
+  }, [facet, graph.kinds, hues]);
+
+  /** Where each group pulls its pages: evenly around the middle of the pane. */
+  const anchors = useMemo(() => {
+    if (!facet) return null;
+    const groups = [...hues.keys()];
+    const ring = Math.min(size.width, size.height) * 0.32;
+    return new Map(
+      groups.map((group, i) => {
+        const angle = (i / Math.max(1, groups.length)) * Math.PI * 2 - Math.PI / 2;
+        return [group, { x: size.width / 2 + Math.cos(angle) * ring, y: size.height / 2 + Math.sin(angle) * ring }];
+      }),
+    );
+  }, [facet, hues, size]);
 
   useEffect(() => {
     const element = hostRef.current;
@@ -92,11 +151,30 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
   useEffect(() => {
     if (nodes.length === 0) return;
 
+    const pullOf = (node: Node): { x: number; y: number } | null => {
+      if (!anchors) return null;
+      const places = groupsOf(node).map((group) => anchors.get(group)).filter((p): p is { x: number; y: number } => !!p);
+      if (places.length === 0) return null;
+      return { x: places.reduce((s, p) => s + p.x, 0) / places.length, y: places.reduce((s, p) => s + p.y, 0) / places.length };
+    };
+    const shareGroup = (link: Link): boolean => {
+      const a = groupsOf(link.source);
+      return groupsOf(link.target).some((g) => a.includes(g));
+    };
+
     const simulation = forceSimulation<Node>(nodes)
-      .force('link', forceLink<Node, Link>(links).id((d) => d.id).distance(110).strength(0.35))
+      .force(
+        'link',
+        forceLink<Node, Link>(links)
+          .id((d) => d.id)
+          .distance(110)
+          .strength((link) => (anchors ? (shareGroup(link) ? 0.35 : 0.08) : 0.35)),
+      )
       .force('charge', forceManyBody().strength(-420))
       .force('center', forceCenter(size.width / 2, size.height / 2))
       .force('collide', forceCollide<Node>().radius((d) => radius(d) + 14))
+      .force('x', anchors ? forceX<Node>((d) => pullOf(d)?.x ?? size.width / 2).strength((d) => (pullOf(d) ? 0.12 : 0)) : null)
+      .force('y', anchors ? forceY<Node>((d) => pullOf(d)?.y ?? size.height / 2).strength((d) => (pullOf(d) ? 0.12 : 0)) : null)
       .alphaDecay(0.045);
 
     // Re-render on every tick. React state is the frame driver here rather than
@@ -108,7 +186,17 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
       simulation.stop();
       simRef.current = null;
     };
-  }, [nodes, links, size.width, size.height]);
+  }, [nodes, links, size.width, size.height, anchors]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Escape clears the narrowing, as it does in the desktop app.
+  useEffect(() => {
+    if (!focus) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setFocus(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focus]);
 
   function onPointerDown(event: React.PointerEvent, node: Node) {
     (event.target as Element).setPointerCapture(event.pointerId);
@@ -158,6 +246,10 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
   const showsLabel = (node: Node): boolean =>
     labelled === null || labelled.has(node.id) || (neighbours?.has(node.id) ?? false);
 
+  /** Whether a page is in the group the legend narrowed the graph to. */
+  const inFocus = (node: Node): boolean => !focus || groupsOf(node).includes(focus);
+  const dimmed = (node: Node): boolean => (neighbours ? !neighbours.has(node.id) : !inFocus(node));
+
   const written = graph.nodes.filter((n) => n.kind !== 'missing').length;
 
   return (
@@ -169,6 +261,24 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
           {graph.orphans.length > 0 && ` · ${graph.orphans.length} not linked from anywhere`}
         </span>
         <span className="statusbar-spacer" />
+        {graph.facets.length > 0 && (
+          <>
+            <button type="button" className={`graph-toggle${mode === FOLDERS ? ' active' : ''}`} onClick={() => chooseMode(FOLDERS)} title="Colour the pages by folder">
+              Folders
+            </button>
+            {graph.facets.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className={`graph-toggle${mode === f.key ? ' active' : ''}`}
+                onClick={() => chooseMode(f.key)}
+                title={`Group the pages by ${f.label.toLowerCase()}`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </>
+        )}
         <button
           type="button"
           className="graph-toggle"
@@ -190,6 +300,7 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
             <g>
               {links.map((link, i) => {
                 const lit = neighbours ? neighbours.has(link.source.id) && neighbours.has(link.target.id) : false;
+                const faded = neighbours ? !lit : focus ? !(inFocus(link.source) && inFocus(link.target)) : false;
                 const broken = link.source.kind === 'missing' || link.target.kind === 'missing';
                 return (
                   <line
@@ -199,7 +310,7 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
                     x2={link.target.x ?? 0}
                     y2={link.target.y ?? 0}
                     stroke={lit ? 'var(--accent)' : 'var(--text-faint)'}
-                    strokeOpacity={neighbours ? (lit ? 0.9 : 0.12) : 0.45}
+                    strokeOpacity={lit ? 0.9 : faded ? 0.08 : 0.45}
                     strokeWidth={1}
                     strokeDasharray={broken ? '3 3' : undefined}
                   />
@@ -209,14 +320,14 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
 
             <g>
               {nodes.map((node) => {
-                const dim = neighbours && !neighbours.has(node.id);
                 const r = radius(node);
                 const missing = node.kind === 'missing';
+                const groups = groupsOf(node);
                 return (
                   <g
                     key={node.id}
                     transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
-                    opacity={dim ? 0.2 : 1}
+                    opacity={dimmed(node) ? 0.18 : 1}
                     style={{ cursor: node.href ? 'pointer' : 'default' }}
                     onPointerDown={(e) => onPointerDown(e, node)}
                     onPointerMove={(e) => onPointerMove(e, node)}
@@ -225,13 +336,14 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
                     onMouseLeave={() => setHovered(null)}
                     onClick={() => node.href && !dragging && router.push(node.href)}
                   >
-                    <circle
-                      r={r}
-                      fill={colourOf(hues.get(node.kind))}
-                      fillOpacity={missing ? 0.55 : 1}
-                      stroke={hovered === node.id ? 'var(--accent)' : 'none'}
-                      strokeWidth={2}
-                    />
+                    {groups.length > 1 ? (
+                      groups.map((group, i) => (
+                        <path key={group} d={slice(r, i, groups.length)} fill={colourOf(hues.get(group))} />
+                      ))
+                    ) : (
+                      <circle r={r} fill={colourOf(hues.get(groups[0]))} fillOpacity={missing ? 0.55 : 1} />
+                    )}
+                    <circle r={r} fill="none" stroke={hovered === node.id ? 'var(--accent)' : 'none'} strokeWidth={2} />
                     {showsLabel(node) && (
                       <text
                         y={r + 14}
@@ -255,20 +367,30 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
           </svg>
 
           <div className="graph-legend">
-            {graph.kinds
-              .filter(({ kind }) => hues.has(kind))
-              .map(({ kind, label }) => (
-                <div key={kind} className="graph-legend-row">
-                  <span className="graph-legend-swatch" style={{ background: colourOf(hues.get(kind)) }} />
-                  <span>{label}</span>
-                  <span className="graph-legend-count">{counts.get(kind) ?? 0}</span>
-                </div>
-              ))}
-            {counts.has('missing') && (
+            {legend.map(({ group, label }) => (
+              <div
+                key={group}
+                className={`graph-legend-row${facet ? ' clickable' : ''}${focus === group ? ' focused' : ''}`}
+                title={facet ? (focus === group ? 'Show every page again' : `Show only the pages of ${label}`) : undefined}
+                onClick={facet ? () => setFocus(focus === group ? null : group) : undefined}
+              >
+                <span className="graph-legend-swatch" style={{ background: colourOf(hues.get(group)) }} />
+                <span>{label}</span>
+                <span className="graph-legend-count">{counts.get(group) ?? 0}</span>
+              </div>
+            ))}
+            {(counts.get('missing') ?? 0) > 0 && (
               <div className="graph-legend-row" title="Links to pages that do not exist yet">
                 <span className="graph-legend-swatch unresolved" />
                 <span>Not written yet</span>
                 <span className="graph-legend-count">{counts.get('missing')}</span>
+              </div>
+            )}
+            {facet && (counts.get('none') ?? 0) > 0 && (
+              <div className="graph-legend-row" title={`Pages whose block gives no ${facet.label.toLowerCase()}`}>
+                <span className="graph-legend-swatch" style={{ background: colourOf(undefined) }} />
+                <span>Without a {facet.label.toLowerCase()}</span>
+                <span className="graph-legend-count">{counts.get('none')}</span>
               </div>
             )}
           </div>
@@ -281,4 +403,16 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
 /** Well-connected pages read as the hubs they are. */
 function radius(node: GraphNode): number {
   return 5 + Math.min(11, Math.sqrt(node.degree) * 3);
+}
+
+/** The i-th of n slices of a circle of radius r, starting at the top and going clockwise. */
+function slice(r: number, i: number, n: number): string {
+  const from = (i / n) * Math.PI * 2;
+  const to = ((i + 1) / n) * Math.PI * 2;
+  const x0 = (r * Math.sin(from)).toFixed(2);
+  const y0 = (-r * Math.cos(from)).toFixed(2);
+  const x1 = (r * Math.sin(to)).toFixed(2);
+  const y1 = (-r * Math.cos(to)).toFixed(2);
+  const large = to - from > Math.PI ? 1 : 0;
+  return `M0,0 L${x0},${y0} A${r},${r} 0 ${large},1 ${x1},${y1} Z`;
 }

@@ -2,6 +2,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
 import type { ComponentProps, ReactNode } from 'react';
+import { remarkCallouts } from '@/lib/callouts';
 import { linkifyWikilinks } from '@/lib/wikilinks';
 import type { Heading } from '@/lib/outline';
 
@@ -39,7 +40,7 @@ export function MarkdownView({
 
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkCallouts]}
       components={{
         h1: heading('h1'),
         h2: heading('h2'),
