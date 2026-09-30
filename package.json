@@ -23,9 +23,10 @@
     "check:design": "node scripts/check-design.mjs",
     "check:assets": "node scripts/check-assets.mjs",
     "check:rename": "node scripts/check-rename.mjs",
+    "check:graph": "node scripts/check-graph.mjs",
     "check:live": "node scripts/check-live.mjs",
     "check:real": "node scripts/check-real.mjs",
-    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets && npm run check:rename"
+    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets && npm run check:rename && npm run check:graph"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

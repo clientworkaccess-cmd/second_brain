@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Maximize2 } from 'lucide-react';
 import type { Graph } from '@/lib/graph';
-import { UNRESOLVED_GROUP, areaHues, areaStats, groupHues, type GraphData } from '@/graph/data';
-import { WebGLGraph, type GraphPalette } from '@/graph/webglGraph';
+import { areaHues, areaStats, groupHues } from '@/graph/data';
+import { readPalette, toData } from '@/graph/palette';
+import { WebGLGraph } from '@/graph/webglGraph';
 
 /**
  * The wiki as a graph: every page a node, every [[wikilink]] an edge.
@@ -27,36 +28,6 @@ const FOLDERS = 'folders';
 /** Hue -> the CSS colour the engine's shader uses, so the legend matches the dots. */
 const colourOf = (hue: number | undefined, dark: boolean): string =>
   hue === undefined ? 'var(--text-faint)' : `hsl(${Math.round(hue)}, 62%, ${dark ? 64 : 42}%)`;
-
-function readPalette(host: HTMLElement): GraphPalette {
-  const css = getComputedStyle(host);
-  const v = (name: string, fallback: string): string => css.getPropertyValue(name).trim() || fallback;
-  return {
-    dark: getComputedStyle(document.documentElement).colorScheme.trim() === 'dark',
-    node: v('--text-muted', '#999'),
-    unresolved: v('--text-faint', '#666'),
-    accent: v('--accent', '#0d9488'),
-    link: v('--border', '#555'),
-    label: v('--text-normal', '#ddd'),
-    bg: css.backgroundColor || v('--bg-primary', '#1e1e1e'),
-    font: v('--font-ui', 'sans-serif'),
-  };
-}
-
-/** What the engine takes: the folder as the group, the chosen facet's values as the areas. */
-function toData(graph: Graph, facet: string | null): GraphData {
-  return {
-    nodes: graph.nodes.map((n) => ({
-      id: n.id,
-      label: n.label,
-      unresolved: n.kind === 'missing',
-      degree: n.degree,
-      group: n.kind === 'missing' ? UNRESOLVED_GROUP : n.kind,
-      areas: facet && n.kind !== 'missing' ? (n.facets[facet] ?? []) : [],
-    })),
-    links: graph.links.map((l) => ({ source: l.source, target: l.target, weight: 1 })),
-  };
-}
 
 export function GraphView({ graph, cluster }: { graph: Graph; cluster: string }) {
   const router = useRouter();

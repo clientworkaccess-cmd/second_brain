@@ -668,6 +668,22 @@
     overflow: hidden;
     background: var(--bg-primary);
   }
+  .local-graph {
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--border);
+  }
+  .local-graph-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px 6px 12px;
+  }
+  .graph-host.local {
+    flex: none;
+    height: 280px;
+  }
   .graph-host canvas {
     position: absolute;
     inset: 0;
