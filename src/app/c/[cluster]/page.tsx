@@ -2,6 +2,8 @@ import { FileQuestion } from 'lucide-react';
 import { describeCluster } from '@/lib/clusters';
 import { readSettings } from '@/lib/settings';
 import { FilingSwitch } from '@/components/FilingSwitch';
+import { FilingHistory, type PastFiling } from '@/components/FilingHistory';
+import { listJobs } from '@/lib/jobs';
 import { outlineOf } from '@/lib/outline';
 import { readIndex, readLog, linkIndex, listPages, splitPage } from '@/lib/wiki';
 import { Center } from '@/components/frame/Frame';
@@ -15,14 +17,27 @@ export const dynamic = 'force-dynamic';
 /** The wiki's front page: add a document, then the agent's own index. */
 export default async function ClusterIndex({ params }: { params: Promise<{ cluster: string }> }) {
   const { cluster } = await params;
-  const [meta, index, log, titles, listing, settings] = await Promise.all([
+  const [meta, index, log, titles, listing, settings, jobs] = await Promise.all([
     describeCluster(cluster),
     readIndex(cluster),
     readLog(cluster, 12),
     linkIndex(cluster),
     listPages(cluster),
     readSettings(cluster),
+    listJobs(cluster, 30),
   ]);
+  // What the panel needs and nothing more: a job record holds paths on the server.
+  const filings: PastFiling[] = jobs.map((job) => ({
+    id: job.id,
+    filename: job.filename,
+    status: job.status,
+    startedAt: job.startedAt,
+    diff: job.diff,
+    commit: job.commit,
+    automatic: job.automatic,
+    findings: job.lint?.findings.length ?? 0,
+    error: job.error,
+  }));
 
   const pageCount = listing.total;
   const body = index ? splitPage(index).content : null;
@@ -82,6 +97,11 @@ export default async function ClusterIndex({ params }: { params: Promise<{ clust
                   ))}
                 </div>
               ),
+          },
+          {
+            id: 'filings',
+            label: 'Filings',
+            content: <FilingHistory cluster={cluster} filings={filings} />,
           },
           {
             id: 'about',

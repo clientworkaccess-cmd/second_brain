@@ -70,7 +70,8 @@ before the first paint.
   per facet above the tree narrows the tree and the search to one value; the
   choice stays for as long as the browser tab is.
 - **Centre:** a tab for every page that is open, kept for as long as the browser tab is.
-- **Right:** backlinks, outline and links for a page. Activity and a summary for a cluster, with the one decision a person makes about it: whether a filing waits for approval.
+- **Right:** backlinks, outline and links for a page. For a cluster: the agent's activity, every filing with what became of it and an undo, and a summary with the one decision a person makes about it: whether a filing waits for approval.
+- **The check page:** the wiki held to its rules, grouped by what is wrong, each remark with a link to the page. Warning colour for what a person may want to look at, danger for what must go.
 - **A page's properties:** the block at its top, as the desktop app shows it. A
   facet's values are chips that lead to every page sharing them. What the rules
   would change about the block is said under it, in the warning colour.
