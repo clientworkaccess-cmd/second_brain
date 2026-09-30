@@ -18,7 +18,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { randomBytes, scryptSync } from 'node:crypto';
+import { createHmac, randomBytes, scryptSync } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -58,7 +58,7 @@ const running = [];
  * misbehave. `relative` gives the wiki's place the way the example env file
  * does, as a path from the checkout.
  */
-async function start(agentArgs = 'scripts/fake-claude.mjs', { relative = false } = {}) {
+async function start(agentArgs = 'scripts/fake-claude.mjs', { relative = false, extraEnv = {} } = {}) {
   const port = await freePort();
   const wiki = relative
     ? await fs.mkdtemp(path.join(appDir, '.wiki-live-'))
@@ -76,6 +76,7 @@ async function start(agentArgs = 'scripts/fake-claude.mjs', { relative = false }
     AUTH_EMAIL: EMAIL,
     AUTH_PASSWORD_HASH: HASH,
     SESSION_SECRET: randomBytes(48).toString('base64url'),
+    ...extraEnv,
   });
   // Started from the checkout, as the service unit does. APP_DIR is left unset
   // on purpose: the app has to find the checkout by itself.
@@ -106,8 +107,8 @@ async function stopAll() {
 const json = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const withCookie = (init, cookie) => ({ ...init, headers: { ...(init.headers ?? {}), cookie } });
 
-async function signIn(base, password = PASSWORD, headers = {}) {
-  const init = json({ email: EMAIL, password });
+async function signIn(base, password = PASSWORD, headers = {}, code = undefined) {
+  const init = json(code === undefined ? { email: EMAIL, password } : { email: EMAIL, password, code });
   const res = await fetch(`${base}/api/auth/login`, { ...init, headers: { ...init.headers, ...headers } });
   const set = res.headers.get('set-cookie') ?? '';
   return { res, set, cookie: set.split(';')[0] };
@@ -135,6 +136,40 @@ async function events(url, init = {}) {
 }
 
 const lastJob = (stream) => stream.list.filter((e) => e.name === 'job').pop()?.data ?? null;
+
+/** The six-digit code of the moment, worked out here so the check does not trust the app's own arithmetic. */
+function totpNow(secret, now = Date.now()) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  const bytes = [];
+  let bits = 0;
+  let value = 0;
+  for (const c of secret.toUpperCase()) {
+    value = (value << 5) | alphabet.indexOf(c);
+    bits += 5;
+    if (bits >= 8) {
+      bytes.push((value >>> (bits - 8)) & 0xff);
+      bits -= 8;
+    }
+  }
+  const counter = Buffer.alloc(8);
+  counter.writeUInt32BE(Math.floor(now / 30000), 4);
+  const digest = createHmac('sha1', Buffer.from(bytes)).update(counter).digest();
+  const offset = digest[19] & 0x0f;
+  const code = ((digest[offset] & 0x7f) << 24) | (digest[offset + 1] << 16) | (digest[offset + 2] << 8) | digest[offset + 3];
+  return String(code % 1_000_000).padStart(6, '0');
+}
+
+/** The middleware learns of a revocation within a few seconds. Returns the status the cookie settles on. */
+async function settles(base, cookie, want, ms = 8000) {
+  const until = Date.now() + ms;
+  let status = 0;
+  while (Date.now() < until) {
+    status = (await fetch(`${base}/api/clusters`, { headers: { cookie } })).status;
+    if (status === want) return status;
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  return status;
+}
 
 async function upload(base, cookie, cluster, filename, text) {
   const form = new FormData();
@@ -220,6 +255,21 @@ try {
   check('a signed-in visitor is sent away from the login page', [302, 307, 308].includes(loginAgain.status), String(loginAgain.status));
   const imageInside = await get(IMAGE, { cookie });
   check('the image optimizer is switched off, session or not', imageInside.status === 404, String(imageInside.status));
+
+  // ------------------------------------------------------------ sessions
+  check('a session says which epoch it is from', cookie.split('.').length === 4 && cookie.split('.')[2] === '1', cookie.replace(/=[^.]+/, '=…'));
+  const openSessions = (await (await get('/api/auth/sessions', { cookie })).json()).sessions ?? [];
+  check('the signed-in browsers are listed, this one marked', openSessions.length >= 2 && openSessions.filter((s) => s.current).length === 1 && openSessions.every((s) => typeof s.key === 'string' && s.id.length === 8 && s.client), `${openSessions.length} sessions`);
+  const state = await (await get('/api/auth/state')).json();
+  check('the epoch and the revoked ids need no session, and say nothing else', state.epoch === 1 && Array.isArray(state.revoked) && !('sessions' in state), JSON.stringify(state));
+  const otherSession = openSessions.find((s) => !s.current);
+  const ended = await fetch(`${base}/api/auth/sessions`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: otherSession.key }) }, cookie));
+  check('another browser’s session can be ended', ended.status === 200 && !/brain_session=;/.test(ended.headers.get('set-cookie') ?? ''), String(ended.status));
+  check('the ended session is refused within seconds, cookie or no cookie', (await settles(base, viaProxy.cookie, 401)) === 401);
+  check('this one still works', (await get('/api/clusters', { cookie })).status === 200);
+  const securityPage = await get('/security', { cookie });
+  const securityHtml = await securityPage.text();
+  check('the Security page shows the browsers and the trail', securityPage.status === 200 && securityHtml.includes('Signed-in browsers') && securityHtml.includes('this browser') && securityHtml.includes('Signed in') && securityHtml.includes('Session ended'), String(securityPage.status));
 
   // ------------------------------------------------- one document, end to end
   const created = await fetch(`${base}/api/clusters`, withCookie(json({ name: 'operations', scope: 'Returns and refunds' }), cookie));
@@ -317,6 +367,21 @@ try {
   const nowhere = await fetch(`${base}/api/chat`, withCookie(json({ cluster: '../operations', question: 'x' }), cookie));
   check('a cluster name cannot climb out of the wiki', nowhere.status === 400, String(nowhere.status));
 
+  // ------------------------------------- filed at once, discarded, undone
+  const switched = await fetch(`${base}/api/clusters/settings`, withCookie(json({ cluster: 'operations', settings: { filing: 'automatic' } }), cookie));
+  check('a wiki can be set to file at once', switched.status === 200 && (await switched.json()).settings?.filing === 'automatic', String(switched.status));
+  const { jobId: autoId } = await (await upload(base, cookie, 'operations', 'second-note.md', `${NOTE} Refunds go out the same day.`)).json();
+  const filedAtOnce = lastJob(await events(`${base}/api/jobs/${autoId}`, { headers: { cookie } }));
+  check('an upload is then filed without a decision', ['done', 'attention'].includes(filedAtOnce?.status) && filedAtOnce?.automatic === true, filedAtOnce?.error ?? filedAtOnce?.status ?? 'no job');
+  await fetch(`${base}/api/clusters/settings`, withCookie(json({ cluster: 'operations', settings: { filing: 'review' } }), cookie));
+  const { jobId: discardId } = await (await upload(base, cookie, 'operations', 'third-note.md', `${NOTE} Exchanges are handled by the same team.`)).json();
+  const waiting = lastJob(await events(`${base}/api/jobs/${discardId}`, { headers: { cookie } }));
+  const discarded = await fetch(`${base}/api/pipeline/reject`, withCookie(json({ jobId: discardId }), cookie));
+  check('an upload waiting for a decision can be discarded', waiting?.status === 'awaiting_approval' && discarded.status === 200 && (await discarded.json()).job?.status === 'rejected', `${waiting?.status} then ${discarded.status}`);
+  const undone = await fetch(`${base}/api/pipeline/undo`, withCookie(json({ jobId: autoId }), cookie));
+  const undoneJob = (await undone.json()).job;
+  check('a filing can be undone', undone.status === 200 && undoneJob?.status === 'undone' && typeof undoneJob?.undoCommit === 'string', `${undone.status} ${undoneJob?.status ?? ''}`);
+
   // ------------------------------------------------------------ throttle
   let status = 0;
   for (let i = 0; i < 5; i++) status = (await signIn(base, 'not the password', { 'x-forwarded-for': '203.0.113.50' })).res.status;
@@ -328,6 +393,41 @@ try {
 
   const out = await fetch(`${base}/api/auth/logout`, { method: 'POST', headers: { cookie } });
   check('signing out clears the cookie', /brain_session=;/.test(out.headers.get('set-cookie') ?? '') && /max-age=0/i.test(out.headers.get('set-cookie') ?? ''), out.headers.get('set-cookie') ?? '');
+  check('a session that signed out is refused where a copy of the cookie was kept', (await settles(base, cookie, 401)) === 401);
+
+  // ------------------------------------------------- sign out everywhere
+  const a = await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.3' });
+  const b = await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.4' });
+  const everywhere = await fetch(`${base}/api/auth/sessions`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ all: true }) }, a.cookie));
+  check('sign out everywhere clears this cookie too', everywhere.status === 200 && /brain_session=;/.test(everywhere.headers.get('set-cookie') ?? ''), String(everywhere.status));
+  check('every other session is refused within seconds', (await settles(base, b.cookie, 401)) === 401);
+  const afterwards = await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.3' });
+  check('signing in again works and is of the new epoch', afterwards.res.status === 200 && afterwards.cookie.split('.')[2] === '2', afterwards.cookie.split('.')[2]);
+  check('the old sessions are gone from the list', ((await (await get('/api/auth/sessions', { cookie: afterwards.cookie })).json()).sessions ?? []).length === 1);
+  check('the epoch and the revocations survive a restart', JSON.parse(await fs.readFile(path.join(app.wiki, '.dashboard', 'auth.json'), 'utf8')).epoch === 2);
+
+  // ---------------------------------------------------------- the trail
+  const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  const kinds = new Set(trail.map((e) => e.event));
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved'];
+  check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
+  check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
+
+  // ---------------------------------------------------- the second factor
+  const SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+  const guarded = await start('scripts/fake-claude.mjs', { extraEnv: { AUTH_TOTP_SECRET: SECRET } });
+  check('the login page asks for a code', (await (await fetch(`${guarded.base}/login`)).text()).includes('authenticator'));
+  const noCode = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' });
+  check('the password alone is refused', noCode.res.status === 401 && !noCode.set && /code/.test((await noCode.res.json()).error ?? ''), String(noCode.res.status));
+  const wrongCode = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, '000000');
+  check('a wrong code is refused', wrongCode.res.status === 401 && !wrongCode.set, String(wrongCode.res.status));
+  const wrongPassword = await signIn(guarded.base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.9' }, totpNow(SECRET));
+  check('the right code with a wrong password is refused', wrongPassword.res.status === 401 && !wrongPassword.set, String(wrongPassword.res.status));
+  const withCode = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, totpNow(SECRET));
+  check('the password and the code sign in', withCode.res.status === 200 && withCode.cookie.startsWith('brain_session='), String(withCode.res.status));
+  const replayed = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, totpNow(SECRET));
+  check('the same code is not taken twice', replayed.res.status === 401, String(replayed.res.status));
+  check('the session opens the app', (await fetch(`${guarded.base}/api/clusters`, { headers: { cookie: withCode.cookie } })).status === 200);
 
   // ----------------------------------------------- when Claude is signed out
   const down = await start('scripts/fake-claude.mjs --fail auth');

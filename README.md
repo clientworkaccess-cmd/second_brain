@@ -35,7 +35,9 @@ npm run dev
 
 `hash-password` asks for a password and prints three lines. Put them in
 `.env.local` in place of the three empty ones. Sign-in stays closed until all
-three are set; there is no built-in login.
+three are set; there is no built-in login. `npm run totp-secret` prints a fourth
+line, `AUTH_TOTP_SECRET`, and the key to add to an authenticator app; set, the
+sign-in asks for the app's six-digit code too. Locally it is easier left out.
 
 `.env.example` points `CLAUDE_CMD` at `scripts/fake-claude.mjs`, a stand-in that
 speaks the same protocol as the real binary, writes plausible pages and streams
@@ -62,7 +64,7 @@ npm run build && npm run serve
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
 | `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
-| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, the editor's reads and writes, a signed-out agent. Needs `npm run build` first |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, the trail, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |
 
@@ -133,11 +135,17 @@ Type `/login`, open the link it prints in a browser, finish there, then `/exit`.
 ```bash
 sudo cp /opt/brain-app/.env.example /opt/brain-app/.env
 sudo npm --prefix /opt/brain-app run hash-password -- you@example.com
+sudo npm --prefix /opt/brain-app run totp-secret
 sudoedit /opt/brain-app/.env
 sudo chown root:root /opt/brain-app/.env && sudo chmod 600 /opt/brain-app/.env
 ```
 
-In `.env`, besides the three sign-in lines:
+`totp-secret` prints the second factor: the `AUTH_TOTP_SECRET` line for the
+env file and the key to add to an authenticator app on the phone. Do it now,
+before the site is reachable; it can be left out, and the sign-in then takes
+the password alone.
+
+In `.env`, besides the sign-in lines:
 
 ```bash
 WIKI_ROOT=/var/brain-data
@@ -185,6 +193,32 @@ The app says so, in the upload card and in the chat, in place of a generic
 failure. Repeat step 4, then upload the document again.
 
 ---
+
+## Sign-in
+
+One login, shared, with a password and, where `AUTH_TOTP_SECRET` is set, the
+six-digit code from an authenticator app. Five wrong guesses block that address
+for a while; a code is taken once.
+
+A session lives in a signed cookie for thirty days. What the server keeps about
+sessions is in `<WIKI_ROOT>/.dashboard/auth.json`: which are open, which were
+ended, and an epoch that "Sign out everywhere" moves on, so that every cookie
+from before it is refused. The middleware learns of both through
+`/api/auth/state` and keeps them for five seconds, which is the most a session
+ended elsewhere can go on for.
+
+The Security page (the shield in the sidebar of the front page) lists the
+browsers that are signed in, from where and since when, and ends any of them,
+or all at once. It also shows the trail: every sign-in and refusal, every
+session ended, every wiki made, every setting changed, every document read,
+filed, discarded or undone, every page saved — when, from where and by which
+session. The trail is `<WIKI_ROOT>/.dashboard/audit.log`, one line of JSON per
+event, appended and never rewritten, set aside as `audit-1.log` past 8 MB. It
+never holds a password, a code, a cookie or a page's text.
+
+To move the second factor to another phone: `npm run totp-secret` again, set
+the new secret, restart, add the new key to the app. To turn it off, empty the
+line and restart. Changing `SESSION_SECRET` signs everyone out as well.
 
 ## Two layouts
 

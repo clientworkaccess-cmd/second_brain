@@ -11,6 +11,7 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "hash-password": "node scripts/hash-password.mjs",
+    "totp-secret": "node scripts/totp-secret.mjs",
     "gen-brain": "node scripts/gen-brain.mjs",
     "check:stream": "node scripts/check-claude-stream.mjs",
     "check:auth": "node scripts/check-auth.mjs",

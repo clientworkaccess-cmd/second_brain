@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { HttpError, assertClusterName, clusterPath } from '@/lib/config';
 import { exists } from '@/lib/clusters';
+import { SESSION_COOKIE } from '@/lib/env-auth';
 import { normalise, readSettings, writeSettings } from '@/lib/settings';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +23,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const cluster = await named(body.cluster);
     const settings = await writeSettings(cluster, normalise({ ...(await readSettings(cluster)), ...body.settings }));
+    await audit({ event: 'settings-changed', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${cluster}: ${JSON.stringify(settings)}` });
     return NextResponse.json({ settings });
   } catch (err) {
     return fail(err);

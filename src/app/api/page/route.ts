@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { HttpError, assertClusterName, clusterPath } from '@/lib/config';
 import { exists } from '@/lib/clusters';
+import { SESSION_COOKIE } from '@/lib/env-auth';
 import { PageMovedOn, readPageSource, writePageSource } from '@/lib/pages';
 
 export const dynamic = 'force-dynamic';
@@ -35,6 +37,7 @@ export async function PUT(req: NextRequest) {
       force: body.force === true,
       commit: body.commit === true,
     });
+    await audit({ event: 'page-saved', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${cluster}: ${slug}${result.created ? ' (new)' : ''}${body.commit === true ? ' (restore point)' : ''}` });
     return NextResponse.json(result, { status: result.created ? 201 : 200 });
   } catch (err) {
     if (err instanceof PageMovedOn) {

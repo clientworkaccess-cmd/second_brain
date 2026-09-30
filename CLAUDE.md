@@ -27,6 +27,7 @@ runs, which loads no settings or instruction files from anywhere.
   Needs `CLAUDE_CMD`; beyond part 1 it needs a login. `-- --capture` writes the
   stream fixtures.
 - `npm run hash-password -- <email>` — prints the three sign-in env lines.
+  `npm run totp-secret` — prints the second factor and its setup key.
 
 ## Rules that are easy to break
 
@@ -47,15 +48,21 @@ runs, which loads no settings or instruction files from anywhere.
 - **The hash format has no `$` in it.** Next's env loader expands `$name` inside
   values, quoted or not.
 - **The middleware matcher covers every path**, and `lib/gate.ts` is an
-  allowlist. Route handlers do not re-check the session.
+  allowlist. Route handlers do not re-check the session. Whether a session is
+  still wanted (the epoch, the revoked ids) the middleware learns from
+  `/api/auth/state` over loopback and keeps for five seconds; it cannot read
+  a file where it runs.
 - **Redirects are built from the forwarded host, not from `request.url`.** Behind
   the proxy `request.url` says `localhost:3003`.
 - **Paths from env files are resolved against the checkout** (`APP_DIR`), not
   the working directory. The production server changes into `.next/standalone`
   before any of our code runs.
-- **Only the login, the favicon and `/_next/static/` are public.** The image
-  optimizer is off (`images.unoptimized`) and behind the login; the app has no
-  images.
+- **Only the login, the favicon, `/api/auth/state` and `/_next/static/` are
+  public.** The image optimizer is off (`images.unoptimized`) and behind the
+  login; the app has no images.
+- **Every route that changes something writes to the trail** (`audit()` in
+  `src/lib/audit.ts`): a new route that creates, files, saves or ends something
+  gets a line too. Never a password, a code, a token or a page's text.
 - **The block at the top of a page is read in `src/lib/frontmatter.ts` and
   nowhere else**, as YAML only. Never call the parser directly: it reads other
   formats when a block names one, and a page is data.
@@ -126,7 +133,7 @@ the pure parser. `settings.ts` is what a person decided per wiki, in
 `.dashboard/settings/`, today whether a filing waits for approval. `jobs.ts` is the plan, approve, file pipeline with the per-cluster
 lock, the automatic path when a wiki files at once, and the undo; `sandbox.ts` makes the throwaway copy a plan runs in; `lint.ts` is the
 check after filing and the whole-wiki check (`checkWiki`); `git.ts` commits the cluster. `gate.ts`, `session.ts`,
-`auth.ts` are sign-in. `prompts/llm-wiki.md` and `prompts/brain-wiki.md` are
+`auth.ts` are sign-in; `totp.ts` is the second factor, `sessions.ts` what is kept about sessions (`.dashboard/auth.json`: open, revoked, the epoch), `audit.ts` the trail (`.dashboard/audit.log`). `prompts/llm-wiki.md` and `prompts/brain-wiki.md` are
 what the agent is told about a cluster and about a brain. `scripts/fake-claude.mjs` is the stand-in; `scripts/fixtures/` holds
 streams captured from the real binary.
 

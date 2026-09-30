@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { HttpError } from '@/lib/config';
+import { SESSION_COOKIE } from '@/lib/env-auth';
 import { rejectPlan } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -21,6 +23,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const jobId = String(body.jobId ?? '');
     const job = await rejectPlan(jobId);
+    await audit({ event: 'filing-discarded', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${job.cluster}: ${job.filename}` });
     return NextResponse.json({ job });
   } catch (err) {
     if (err instanceof HttpError) {

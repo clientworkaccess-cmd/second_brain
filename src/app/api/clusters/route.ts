@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { createBrain, createCluster, listClusters } from '@/lib/clusters';
 import { HttpError } from '@/lib/config';
+import { SESSION_COOKIE } from '@/lib/env-auth';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -31,6 +33,7 @@ export async function POST(req: NextRequest) {
             entities: String(body.entities ?? ''),
             questions: String(body.questions ?? ''),
           });
+    await audit({ event: 'cluster-created', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${name} (${body.layout === 'brain' ? 'brain' : 'cluster'})` });
     return NextResponse.json({ cluster }, { status: 201 });
   } catch (err) {
     return fail(err);
