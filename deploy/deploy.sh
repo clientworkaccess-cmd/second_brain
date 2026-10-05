@@ -84,7 +84,7 @@ echo "==> Waiting for it to answer"
 for i in $(seq 1 30); do
 	# The login page, not `/`. Without a session `/` answers with a redirect;
 	# the login page is the one page that has to render for anyone.
-	if curl -fsS -o /dev/null "http://127.0.0.1:$PORT/login"; then
+	if curl -fsS -o /dev/null "http://0.0.0.0:$PORT/login"; then
 		echo "==> Up"
 		exit 0
 	fi

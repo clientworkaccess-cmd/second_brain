@@ -1,10 +1,3 @@
-# /etc/systemd/system/brain-app.service
-#
-#   systemctl daemon-reload && systemctl enable --now brain-app
-#
-# Runs beside the older dashboard on the same box and shares nothing with it:
-# its own user, port, data directory and Claude login.
-
 [Unit]
 Description=Second Brain (brain-app)
 After=network-online.target
@@ -13,45 +6,29 @@ Wants=network-online.target
 [Service]
 Type=simple
 
-# Not root. The agent has write tools and reads documents nobody here wrote.
-# What this user can reach is the limit of what a bad document can do.
-User=brain
-Group=brain
+# Running directly as root
+User=root
+Group=root
 
 WorkingDirectory=/opt/brain-app
-# Owned by root, mode 0600. systemd reads it before it drops to `brain`, so the
-# service gets its settings and the agent cannot open the file.
 EnvironmentFile=/opt/brain-app/.env
 
-# ONE process. The per-cluster busy lock is in-process, so a second instance or
-# any clustering silently breaks write serialisation: two ingests would both
-# rewrite index.md and one would lose. Do not add a process manager that forks.
+# ONE process. Do not add a process manager that forks.
 ExecStart=/usr/bin/node .next/standalone/server.js
 
-# Loopback only. Traefik is the only thing that should reach this.
+# Networking & Environment
 Environment=HOSTNAME=127.0.0.1
-# 3003. 3000 and 3002 belong to other apps on this box. Changing it means
-# changing deploy.sh's health check and the Traefik service URL to match.
 Environment=PORT=3003
 Environment=NODE_ENV=production
-# The standalone server changes into .next/standalone on start; this is where
-# the checkout, and prompts/ in it, actually are.
 Environment=APP_DIR=/opt/brain-app
 
-# systemd gives a service no HOME by default, and Claude Code expects one it
-# can write to. This one is inside the service's own state directory; the
-# user's real home, where the binary is installed, stays read-only below.
+# Claude Isolated Environment
 Environment=HOME=/var/lib/brain-app/home
-# The login lives here and nowhere else. Also in .env; repeated so that a
-# missing line there cannot send the agent looking in HOME instead.
 Environment=CLAUDE_CONFIG_DIR=/var/lib/brain-app/claude
-# The version that was tested is the version that runs. Upgrades are deliberate.
 Environment=DISABLE_AUTOUPDATER=1
 
 # ---------------------------------------------------------------------------
-# Hardening. The filesystem is read-only to this service except for the three
-# paths below: the wiki, the service's state (Claude's login, HOME), and Next's
-# cache. The app's own code is not among them.
+# Isolation & Hardening
 # ---------------------------------------------------------------------------
 NoNewPrivileges=yes
 ProtectSystem=strict
@@ -65,20 +42,13 @@ ProtectKernelLogs=yes
 ProtectControlGroups=yes
 ProtectClock=yes
 ProtectHostname=yes
-# Other users' processes are not visible in /proc.
 ProtectProc=invisible
 RestrictSUIDSGID=yes
 RestrictNamespaces=yes
 RestrictRealtime=yes
 LockPersonality=yes
-CapabilityBoundingSet=
-AmbientCapabilities=
-# NETLINK is how Node lists network interfaces, which Next does at start.
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 UMask=0027
-
-# Not set, on purpose: MemoryDenyWriteExecute. Node's JIT needs memory that is
-# both writable and executable, and the service dies at start with it on.
 
 Restart=on-failure
 RestartSec=5
