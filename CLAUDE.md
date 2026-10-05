@@ -12,7 +12,7 @@ runs, which loads no settings or instruction files from anywhere.
 - `npm run dev` — dev server on 3000, against the stand-in agent.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
-- `npm run check` — stream, auth, pipeline and lint checks, all against the
+- `npm run check` — stream, auth, pipeline, lint and page checks, all against the
   stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
@@ -49,6 +49,9 @@ runs, which loads no settings or instruction files from anywhere.
 - **Only the login, the favicon and `/_next/static/` are public.** The image
   optimizer is off (`images.unoptimized`) and behind the login; the app has no
   images.
+- **The block at the top of a page is read in `src/lib/frontmatter.ts` and
+  nowhere else**, as YAML only. Never call the parser directly: it reads other
+  formats when a block names one, and a page is data.
 - **Never commit real documents or a filled-in env file.**
 
 ## Where things are
