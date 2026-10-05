@@ -195,6 +195,28 @@ export async function getJob(id: string): Promise<Job | null> {
   return job;
 }
 
+/**
+ * The filings of one wiki, newest first: every job that was ever started for
+ * it, whatever became of it. Read from disk each time; a job that is under
+ * way is taken from memory, where its progress is.
+ */
+export async function listJobs(cluster: string, limit = 50): Promise<Job[]> {
+  let files: string[] = [];
+  try {
+    files = await fs.readdir(JOBS_DIR);
+  } catch {
+    return [];
+  }
+  const jobs: Job[] = [];
+  for (const file of files) {
+    if (!/^[a-f0-9-]{36}\.json$/i.test(file)) continue;
+    const id = file.slice(0, -5);
+    const job = cache.get(id) ?? (await readJobFile(path.join(JOBS_DIR, file)));
+    if (job && job.cluster === cluster) jobs.push(job);
+  }
+  return jobs.sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, limit);
+}
+
 export function subscribe(id: string, fn: (job: Job) => void): () => void {
   if (!listeners.has(id)) listeners.set(id, new Set());
   listeners.get(id)!.add(fn);
