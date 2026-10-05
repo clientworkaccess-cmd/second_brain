@@ -10,16 +10,19 @@ import {
 } from './config';
 import { ensureDashboardDirs, readIfPresent } from './clusters';
 import { agentFailure, runClaude } from './claude';
+import { indexFile, layoutOf, logFile, type Layout } from './layout';
 import { diffAgainst, snapshot, type IngestDiff } from './wiki';
 import { beforeIngest, lintAfterIngest, sourceFingerprints, type LintResult } from './lint';
 import { planningSandbox } from './sandbox';
-import { commitCluster } from './git';
+import { commitCluster, ensureRepo } from './git';
 import {
   basisIsStale,
   deletePlan,
   extractJson,
+  linkFor,
   pathFor,
   readPlan,
+  slugFor,
   toBasis,
   validatePlan,
   writePlan,
@@ -344,11 +347,13 @@ async function plan(
   try {
     if (!job.stagedPath) throw new Error('The staged document for this ingest is gone');
 
+    const layout = await layoutOf(job.cluster);
+
     // Captured from the live cluster, not the copy — this is what approval is
     // checked against later.
     const basis = toBasis(await snapshot(job.cluster));
 
-    sandbox = await planningSandbox(job.cluster, job.stagedPath);
+    sandbox = await planningSandbox(job.cluster, job.stagedPath, layout);
 
     // Inside the sandbox's cluster directory, which is the agent's working
     // directory — and the one file in it the planner is allowed to write (see
@@ -358,8 +363,9 @@ async function plan(
 
     const run = runClaude({
       mode: 'plan',
-      prompt: planPrompt(job, sandbox.sourceRelPath, planFile, revision),
+      prompt: planPrompt(job, layout, sandbox.sourceRelPath, planFile, revision),
       cwd: sandbox.clusterDir,
+      layout,
       timeoutMs: PLAN_TIMEOUT_MS,
     });
 
@@ -375,16 +381,19 @@ async function plan(
     // Parsing prose for JSON is the brittle version.
     const fromFile = await readIfPresent(planFile);
     const raw = fromFile ?? (result.text || job.lines.join('\n'));
-    const parsed = validatePlan({
-      ...(extractJson(raw) as Record<string, unknown>),
-      jobId: job.id,
-      cluster: job.cluster,
-      filename: job.filename,
-      createdAt: new Date().toISOString(),
-      revision: job.revision,
-      feedback: revision?.feedback ?? null,
-      basis,
-    });
+    const parsed = validatePlan(
+      {
+        ...(extractJson(raw) as Record<string, unknown>),
+        jobId: job.id,
+        cluster: job.cluster,
+        filename: job.filename,
+        createdAt: new Date().toISOString(),
+        revision: job.revision,
+        feedback: revision?.feedback ?? null,
+        basis,
+      },
+      layout,
+    );
 
     await writePlan(parsed);
     job.status = 'awaiting_approval';
@@ -401,48 +410,55 @@ async function plan(
 
 /** The execution pass. The lock is held for exactly this. */
 async function execute(job: Job, approved: Plan): Promise<void> {
-  const before = await snapshot(job.cluster);
-  const baseline = await beforeIngest(job.cluster, before);
-
   try {
     if (!job.stagedPath) throw new Error('The staged document for this ingest is gone');
+    const layout = await layoutOf(job.cluster);
 
-    // Staging → raw/. This is the first write into the cluster, and it happens
-    // only now, after a human said yes.
-    const rawDir = clusterPath(job.cluster, 'raw');
+    // A wiki that came here without history gets its restore point before
+    // anything is written, not after.
+    await ensureRepo(job.cluster, layout);
+
+    const before = await snapshot(job.cluster);
+    const baseline = await beforeIngest(job.cluster, before, layout);
+
+    // Staging → the sources. This is the first write into the wiki, and it
+    // happens only now, after a human said yes.
+    const rawDir = clusterPath(job.cluster, layout.rawDir);
     await fs.mkdir(rawDir, { recursive: true });
 
     // Staging names carry a uuid prefix so two uploads of the same filename
-    // cannot collide before either is approved. raw/ is part of the wiki's own
-    // record and gets the clean name — unless that name is already taken, in
-    // which case the prefix is what keeps this from silently overwriting an
-    // earlier source document.
+    // cannot collide before either is approved. The sources are part of the
+    // wiki's own record and get the clean name — unless that name is already
+    // taken, in which case the prefix is what keeps this from silently
+    // overwriting an earlier source document.
     const staged = path.basename(job.stagedPath);
-    const clean = staged.replace(/^[0-9a-f-]{36}__/i, '');
-    const rawFile = path.join(
-      rawDir,
-      (await fs.stat(path.join(rawDir, clean)).then(() => true).catch(() => false))
-        ? staged
-        : clean,
-    );
-    await fs.rename(job.stagedPath, rawFile).catch(async (err) => {
-      // rename fails across devices; staging and the wiki may be on different
-      // mounts on the VPS.
-      if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
-      await fs.copyFile(job.stagedPath!, rawFile);
-      await fs.rm(job.stagedPath!, { force: true });
-    });
+    const clean = sourceName(staged.replace(/^[0-9a-f-]{36}__/i, ''), layout);
+    const taken = await fs.stat(path.join(rawDir, clean)).then(() => true, () => false);
+    const rawFile = path.join(rawDir, taken ? `${staged.slice(0, 8)}-${clean}` : clean);
+    await move(job.stagedPath, rawFile);
     job.stagedPath = null;
-    const rawPath = `raw/${path.basename(rawFile)}`;
+    const rawPath = `${layout.rawDir}/${path.basename(rawFile)}`;
+
+    // Where the sources are kept under the name they were filed by, the file
+    // that was uploaded goes beside the text that was made from it.
+    if (layout.datedSources && job.originalPath) {
+      const ext = path.extname(job.originalPath).toLowerCase();
+      const beside = path.join(rawDir, `${path.basename(rawFile, '.md')}${ext}`);
+      if (ext && ext !== '.md' && !(await fs.stat(beside).then(() => true, () => false))) {
+        await move(job.originalPath, beside);
+        job.originalPath = null;
+      }
+    }
 
     // Taken again now that the document is in place, so that the check
     // afterwards also notices a change to the document being filed.
-    baseline.sources = await sourceFingerprints(job.cluster);
+    baseline.sources = await sourceFingerprints(job.cluster, layout);
 
     const run = runClaude({
       mode: 'execute',
-      prompt: executePrompt(job, approved, rawPath),
+      prompt: executePrompt(job, layout, approved, rawPath),
       cwd: clusterPath(job.cluster),
+      layout,
       usageFile: path.join(JOBS_DIR, `${job.id}.usage.json`),
       timeoutMs: INGEST_TIMEOUT_MS,
     });
@@ -467,6 +483,7 @@ async function execute(job: Job, approved: Plan): Promise<void> {
     job.commit = await commitCluster(
       job.cluster,
       `Ingest ${job.filename}\n\n${job.lint.ok ? 'Checks passed.' : 'Checks found problems; see the dashboard.'}`,
+      layout,
     );
 
     // The plan has been carried out; it is no longer a pending decision.
@@ -500,10 +517,12 @@ async function execute(job: Job, approved: Plan): Promise<void> {
  */
 function planPrompt(
   job: Job,
+  layout: Layout,
   sourceRelPath: string,
   planFile: string,
   revision: { feedback: string; previous: Plan | null } | null,
 ): string {
+  const kinds = layout.types.map((t) => `"${t.type}"`).join(' | ');
   const lines = [
     // A machine-readable marker on its own line. The real agent can ignore it;
     // the local fake keys its behaviour off it rather than pattern-matching
@@ -511,8 +530,8 @@ function planPrompt(
     // six weeks when one sentence of this prompt was reworded.
     `TASK: PLAN`,
     ``,
-    `Read SCHEMA.md first — it defines this cluster's scope, what it tracks, and its naming rules.`,
-    `Then read index.md to see what the wiki already knows.`,
+    `Read ${layout.rulesFile} first — it defines what this wiki covers, what it tracks, and its naming rules.`,
+    `Then read ${indexFile(layout)} to see what the wiki already knows.`,
     `The document to assess is at: ${sourceRelPath}`,
     ``,
     `This is a reading pass. Do not create, edit or delete any wiki page.`,
@@ -522,11 +541,17 @@ function planPrompt(
     `Report what you found, in plain business language. Never mention folders,`,
     `filenames or paths — describe things by their name and what they are.`,
     ``,
+    `The kinds of page this wiki has:`,
+    ...layout.types.map((t) => `- "${t.type}": ${t.holds}`),
+    ...(layout.types.some((t) => t.type === 'source')
+      ? [`Every document gets exactly one page of the kind "source", which summarises it.`]
+      : []),
+    ``,
     `Write your answer as JSON to this exact path: ${planFile}`,
     ``,
     `{`,
     `  "pages": [`,
-    `    { "kind": "entity" | "concept" | "comparison" | "query",`,
+    `    { "kind": ${kinds},`,
     `      "name": "Mark Chen",`,
     `      "summary": "one line, as it would read in the index",`,
     `      "quote": "the verbatim sentence from the source that justifies this",`,
@@ -571,11 +596,13 @@ function planPrompt(
  * The execution prompt. Here the wiki rules apply in full — this is the pass
  * they were written for — and the approved plan is the specification.
  */
-function executePrompt(job: Job, approved: Plan, rawPath: string): string {
+function executePrompt(job: Job, layout: Layout, approved: Plan, rawPath: string): string {
   const pages = approved.pages.map(
-    (p) => `- ${p.existing ? 'Update' : 'Create'} "${p.name}" (${p.kind}) at ${pathFor(p)} — ${p.summary}`,
+    (p) => `- ${p.existing ? 'Update' : 'Create'} "${p.name}" (${p.kind}) at ${pathFor(p, layout)} — ${p.summary}`,
   );
-  const links = approved.links.map((l) => `- Link [[${l.from}]] to [[${l.to}]] — ${l.why}`);
+  const links = approved.links.map(
+    (l) => `- Link [[${linkFor(l.from, layout)}]] to [[${linkFor(l.to, layout)}]] — ${l.why}`,
+  );
   const decisions = approved.decisions.map(
     (d) => `- ${d.statement}${d.by ? ` (decided by ${d.by})` : ''}`,
   );
@@ -584,7 +611,7 @@ function executePrompt(job: Job, approved: Plan, rawPath: string): string {
     `TASK: EXECUTE`,
     ``,
     `A human has reviewed and approved the plan below. The source document is at ${rawPath}.`,
-    `Read SCHEMA.md and index.md first, then carry out the plan, following the wiki rules in your instructions.`,
+    `Read ${layout.rulesFile} and ${indexFile(layout)} first, then carry out the plan, following the wiki rules in your instructions.`,
     ``,
     `Pages:`,
     ...(pages.length ? pages : ['- (none)']),
@@ -595,13 +622,34 @@ function executePrompt(job: Job, approved: Plan, rawPath: string): string {
     ...(decisions.length ? [`Decisions to record on the relevant pages:`, ...decisions, ``] : []),
     `Write the pages exactly at the paths given above — those names were approved,`,
     `do not rename them. Then:`,
-    `1. Update index.md with a one-line summary for every page you created or changed.`,
-    `2. Append a single entry to log.md in the format: ## [YYYY-MM-DD] ingest | ${job.filename}`,
+    `1. Update ${indexFile(layout)} with a one-line summary for every page you created or changed.`,
+    `2. Append a single entry to ${logFile(layout)} in the format: ## [YYYY-MM-DD] ingest | ${job.filename}`,
     ``,
     `Do not add pages that are not in this plan. If the source clearly requires`,
     `something the plan missed, write the pages that were approved and say what`,
     `you left out at the end of your output.`,
   ].join('\n');
+}
+
+/**
+ * The name a source is kept under. Where the wiki dates its sources, that is
+ * the day it was filed and the name in lower case with hyphens, unless the
+ * name starts with a date already.
+ */
+function sourceName(name: string, layout: Layout): string {
+  if (!layout.datedSources) return name;
+  const stem = slugFor(path.basename(name, path.extname(name))) || 'source';
+  const dated = /^\d{4}-\d{2}-\d{2}-/.test(stem) ? stem : `${new Date().toISOString().slice(0, 10)}-${stem}`;
+  return `${dated}.md`;
+}
+
+/** rename, or copy and remove: staging and the wiki may be on different mounts. */
+async function move(from: string, to: string): Promise<void> {
+  await fs.rename(from, to).catch(async (err) => {
+    if ((err as NodeJS.ErrnoException).code !== 'EXDEV') throw err;
+    await fs.copyFile(from, to);
+    await fs.rm(from, { force: true });
+  });
 }
 
 /** The basis is bookkeeping; showing it back to the agent is noise in context. */

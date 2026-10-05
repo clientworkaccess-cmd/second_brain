@@ -19,8 +19,8 @@ runs, which loads no settings or instruction files from anywhere.
   behaviour, and for any walk-through in a browser.
 - `npm run build` — production build. `postbuild` fails it if any file outside
   the checkout is traced into the bundle.
-- `npm run check` — stream, auth, pipeline, lint, page and design checks, all
-  against the stand-in. `npm run typecheck` — tsc.
+- `npm run check` — stream, auth, pipeline, lint, page, layout and design
+  checks, all against the stand-in. `npm run typecheck` — tsc.
 - `npm run check:live` — starts the built server on a free port and drives it
   over HTTP. Needs a build. The only check that goes through the middleware.
 - `npm run check:real` — the app's exact command line against the real binary.
@@ -76,14 +76,30 @@ A layout renders `<Frame>`. A page renders `<Center>` and, beside it, a
 attributes on `<html>`, set before the first paint by the script in
 `src/app/layout.tsx`, not in React state.
 
+## Two layouts
+
+A wiki is a cluster (this app made it: `SCHEMA.md`, pages beside it, links by
+name) or a brain (kept by hand before: `CLAUDE.md`, pages in `wiki/`, a page
+per source, links by file name). `src/lib/layout.ts` is the one place that
+knows the difference; it is read from the folder (`wiki/index.md` makes a
+brain), never recorded. Nothing else may know a folder name by heart: ask the
+layout, or the listing from `lib/wiki.ts`. The stand-in tells the two apart
+the same way. `scripts/gen-brain.mjs` makes a brain out of nothing for the
+checks; a real one is never used in a check.
+
+`lib/wiki.ts` reads a wiki once and keeps it in memory, on `globalThis` like
+the jobs. It looks at the folders again on every call, which is cheap, and
+reads only files whose size or time changed. Anything that compares before
+with after asks with `{ fresh: true }`.
+
 ## Where things are
 
-`src/lib/claude.ts` builds the command and runs it; `claude-stream.ts` is the
+`src/lib/claude.ts` builds the command and runs it, by layout; `claude-stream.ts` is the
 pure parser. `jobs.ts` is the plan, approve, file pipeline with the per-cluster
 lock; `sandbox.ts` makes the throwaway copy a plan runs in; `lint.ts` is the
 check after filing; `git.ts` commits the cluster. `gate.ts`, `session.ts`,
-`auth.ts` are sign-in. `prompts/llm-wiki.md` is what the agent is told about the
-wiki. `scripts/fake-claude.mjs` is the stand-in; `scripts/fixtures/` holds
+`auth.ts` are sign-in. `prompts/llm-wiki.md` and `prompts/brain-wiki.md` are
+what the agent is told about a cluster and about a brain. `scripts/fake-claude.mjs` is the stand-in; `scripts/fixtures/` holds
 streams captured from the real binary.
 
 ## Working on Windows
@@ -101,4 +117,6 @@ as not checked in `docs/claude-contract.md`. Deployed by hand on the team's
 server; the deploy workflow is still on manual trigger.
 
 The interface follows the desktop app since the `second-brain-ui` change: same
-tokens, same frame, plus search, backlinks, outline and page properties.
+tokens, same frame, plus search, backlinks, outline and page properties. Since
+`wiki-layout`, a wiki in the brain layout can be brought in as it is; its
+facets are not read yet.
