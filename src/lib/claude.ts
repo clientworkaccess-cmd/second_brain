@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto';
 import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { APP_DIR, CLAUDE_CONFIG_DIR, CLAUDE_MODEL, WIKI_RULES_FILE, claudeArgs, claudeCommand, streamLogDir } from './config';
+import { APP_DIR, CLAUDE_CONFIG_DIR, CLAUDE_MODEL, PROMPTS_DIR, claudeArgs, claudeCommand, streamLogDir } from './config';
 import { StreamParser, type AgentResult } from './claude-stream';
+import type { Layout } from './layout';
 
 /**
  * The process boundary between the app and the agent.
@@ -33,6 +34,23 @@ import { StreamParser, type AgentResult } from './claude-stream';
 
 export type AgentMode = 'plan' | 'execute' | 'chat';
 
+/**
+ * A conversation: the one thing a run may keep.
+ *
+ * Planning and filing keep nothing, since no run of theirs is ever continued.
+ * A question can be the next in a conversation: then the session is kept, by
+ * the binary in Claude's own folder, under an id the app gave it, and the next
+ * question resumes it. The id is the app's, made fresh for each conversation.
+ */
+export interface Conversation {
+  /** A UUID. */
+  id: string;
+  /** False for the first question, true for every later one. */
+  resume: boolean;
+}
+
+export const CONVERSATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface AgentRun {
   /** Progress, one line at a time: what the agent is reading and writing, and what it says. */
   lines: AsyncGenerator<string>;
@@ -56,13 +74,19 @@ export interface AgentRun {
  *
  * Paths starting with `/` are relative to the working directory.
  */
-const PROFILES: Record<AgentMode, { tools: string[]; allow: string[] }> = {
-  // The working directory is a throwaway copy (see sandbox.ts). The one thing
-  // the planner writes is its answer.
-  plan: { tools: ['Read', 'Glob', 'Grep', 'Write'], allow: ['Edit(/plan.json)'] },
-  execute: { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: ['Edit(/**)'] },
-  chat: { tools: ['Read', 'Glob', 'Grep'], allow: [] },
-};
+function profile(mode: AgentMode, layout: Layout): { tools: string[]; allow: string[] } {
+  switch (mode) {
+    // The working directory is a throwaway copy (see sandbox.ts). The one thing
+    // the planner writes is its answer.
+    case 'plan':
+      return { tools: ['Read', 'Glob', 'Grep', 'Write'], allow: ['Edit(/plan.json)'] };
+    // What may be written depends on where the wiki keeps its pages.
+    case 'execute':
+      return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
+    case 'chat':
+      return { tools: ['Read', 'Glob', 'Grep'], allow: [] };
+  }
+}
 
 /** Second layer under `--tools`: named so that a renamed flag or a new default cannot bring these back. */
 const NEVER = ['Bash', 'WebFetch', 'WebSearch', 'Agent', 'Task', 'NotebookEdit'];
@@ -71,15 +95,20 @@ const NEVER = ['Bash', 'WebFetch', 'WebSearch', 'Agent', 'Task', 'NotebookEdit']
  * Files that would let a run leave instructions for the next one, and files
  * that hold secrets. Deny rules win over allow rules.
  */
-function denyRules(): string[] {
+function denyRules(layout: Layout): string[] {
   return [
     ...NEVER,
-    // Read at the start of every run as the rules for the cluster, and written by
-    // the app from what a person said. A run that could edit it would be writing
-    // the rules for the next run.
+    // Read at the start of every run as the rules for the wiki, and written by
+    // a person. A run that could edit it would be writing the rules for the
+    // next run. Named for both layouts, whichever this wiki has.
     'Edit(/SCHEMA.md)',
+    `Edit(/${layout.rulesFile})`,
     // Sources are kept as they were given. The app puts them there; the agent reads them.
-    'Edit(/raw/**)',
+    `Edit(/${layout.rawDir}/**)`,
+    // A folder that came here with a working copy of someone's mail has the
+    // key to that mailbox in it.
+    'Read(/**/_secrets/**)',
+    'Edit(/staging/**)',
     'Edit(/CLAUDE.md)',
     'Edit(/**/CLAUDE.md)',
     'Edit(/AGENTS.md)',
@@ -108,22 +137,27 @@ function fromRoot(absolute: string): string {
 }
 
 /** The generated part of the command line. Exported so the check scripts can hold it against the real binary. */
-export function agentArgs(mode: AgentMode): string[] {
-  const profile = PROFILES[mode];
+export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null): string[] {
+  const { tools, allow } = profile(mode, layout);
+  if (conversation && (mode !== 'chat' || !CONVERSATION_ID.test(conversation.id))) {
+    throw new Error('Only a question can be part of a conversation, and its id is a UUID');
+  }
   return [
     '-p',
     '--output-format', 'stream-json',
     '--verbose',
     '--include-partial-messages',
     '--permission-mode', 'dontAsk',
-    '--tools', profile.tools.join(','),
-    ...(profile.allow.length > 0 ? ['--allowedTools', ...profile.allow] : []),
-    '--disallowedTools', ...denyRules(),
-    '--append-system-prompt-file', WIKI_RULES_FILE,
+    '--tools', tools.join(','),
+    ...(allow.length > 0 ? ['--allowedTools', ...allow] : []),
+    '--disallowedTools', ...new Set(denyRules(layout)),
+    '--append-system-prompt-file', path.join(PROMPTS_DIR, layout.prompt),
     '--setting-sources', '',
     '--strict-mcp-config',
     '--disable-slash-commands',
-    '--no-session-persistence',
+    // Nothing is kept of a run, except a conversation, which the next question
+    // in it resumes.
+    ...(conversation ? [conversation.resume ? '--resume' : '--session-id', conversation.id] : ['--no-session-persistence']),
     ...(CLAUDE_MODEL ? ['--model', CLAUDE_MODEL] : []),
   ];
 }
@@ -167,8 +201,13 @@ function narrowEnv(cwd: string): NodeJS.ProcessEnv {
  * environment. One function, so that what the check scripts hold against the
  * real binary is exactly what the app runs.
  */
-export function agentInvocation(mode: AgentMode, cwd: string): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
-  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode)], env: narrowEnv(cwd) };
+export function agentInvocation(
+  mode: AgentMode,
+  cwd: string,
+  layout: Layout,
+  conversation: Conversation | null = null,
+): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
+  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation)], env: narrowEnv(cwd) };
 }
 
 /** See streamLogDir() in config.ts. A run is never failed because its record could not be kept. */
@@ -190,8 +229,12 @@ function openStreamLog(mode: AgentMode): WriteStream | null {
 export function runClaude(opts: {
   mode: AgentMode;
   prompt: string;
-  /** The cluster, or for planning the throwaway copy of it. */
+  /** The wiki's folder, or for planning the throwaway copy of it. */
   cwd: string;
+  /** How that wiki is laid out: it decides the rules the run is given and what it may write. */
+  layout: Layout;
+  /** Chat only: the conversation this question is part of. */
+  conversation?: Conversation | null;
   timeoutMs?: number;
   usageFile?: string;
 }): AgentRun {
@@ -200,7 +243,7 @@ export function runClaude(opts: {
   const parser = new StreamParser(opts.cwd);
   const chat = opts.mode === 'chat';
 
-  const { command, args, env } = agentInvocation(opts.mode, opts.cwd);
+  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null);
   const record = openStreamLog(opts.mode);
   const child = spawn(command, args, {
     cwd: opts.cwd,

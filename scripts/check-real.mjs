@@ -62,6 +62,7 @@ const { agentInvocation, runClaude } = await import(lib('claude'));
 const { parseStream } = await import(lib('claude-stream'));
 const { chatPrompt } = await import(lib('chat'));
 const { createCluster } = await import(lib('clusters'));
+const { CLUSTER, BRAIN } = await import(lib('layout'));
 const config = await import(lib('config'));
 
 const results = [];
@@ -78,9 +79,9 @@ await createCluster({ name: 'ops', scope: 'Returns and refunds', entities: '', q
 const cluster = path.join(process.env.WIKI_ROOT, 'ops');
 
 /** Exactly what the app would run, with everything it printed. */
-function run(mode, prompt, cwd = cluster, timeoutMs = 180_000) {
+function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER, conversation = null) {
   return new Promise((resolve) => {
-    const { command: cmd, args, env } = agentInvocation(mode, cwd);
+    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout, conversation);
     const child = spawn(cmd, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     let err = '';
@@ -120,24 +121,34 @@ console.log(`Login:  ${config.CLAUDE_CONFIG_DIR ?? 'the default for this user'}\
 
 let signedIn = false;
 let version = null;
-for (const mode of ['plan', 'execute', 'chat']) {
-  const r = await run(mode, 'Reply with the single word: ready');
+// Both layouts a wiki can have. They differ in the rules a run is given and in
+// what it may write, which is to say in the command line.
+for (const [layout, mode] of [CLUSTER, BRAIN].flatMap((l) => ['plan', 'execute', 'chat'].map((m) => [l, m]))) {
+  const r = await run(mode, 'Reply with the single word: ready', cluster, 180_000, layout);
+  const name = `${layout.id}, ${mode}`;
   if (!r.started) {
-    check(`${mode}: the binary starts`, false, r.err);
+    check(`${name}: the binary starts`, false, r.err);
     continue;
   }
   const raw = await raws(r);
   const asked = valueAfter(r.args, '--tools').split(',');
   version = r.init?.version ?? version;
-  check(`${mode}: every flag and rule is accepted`, !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
-  check(`${mode}: the tools are the ones asked for`, !!r.init && sorted(r.init.tools) === sorted(asked), r.init ? r.init.tools.join(',') : '');
-  check(`${mode}: nothing else is loaded`, !!r.init && r.init.leaked.length === 0, r.init?.leaked.join(', ') ?? '');
-  check(`${mode}: nothing is ever asked, only refused`, raw.init?.permissionMode === 'dontAsk', String(raw.init?.permissionMode));
-  check(`${mode}: no API key is in use`, raw.init?.apiKeySource === 'none', String(raw.init?.apiKeySource));
-  check(`${mode}: no slash commands`, Array.isArray(raw.init?.slash_commands) && raw.init.slash_commands.length === 0, JSON.stringify(raw.init?.slash_commands));
-  check(`${mode}: ends with a result`, !!r.result, `exit ${r.code}`);
+  check(`${name}: every flag and rule is accepted`, !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
+  check(`${name}: the tools are the ones asked for`, !!r.init && sorted(r.init.tools) === sorted(asked), r.init ? r.init.tools.join(',') : '');
+  check(`${name}: nothing else is loaded`, !!r.init && r.init.leaked.length === 0, r.init?.leaked.join(', ') ?? '');
+  check(`${name}: nothing is ever asked, only refused`, raw.init?.permissionMode === 'dontAsk', String(raw.init?.permissionMode));
+  check(`${name}: no API key is in use`, raw.init?.apiKeySource === 'none', String(raw.init?.apiKeySource));
+  check(`${name}: no slash commands`, Array.isArray(raw.init?.slash_commands) && raw.init.slash_commands.length === 0, JSON.stringify(raw.init?.slash_commands));
+  check(`${name}: ends with a result`, !!r.result, `exit ${r.code}`);
   if (r.result?.ok) signedIn = true;
-  else if (r.result) note(`${mode}: the run itself`, `${r.result.error}: ${r.result.errorDetail ?? ''}`.slice(0, 160));
+  else if (r.result) note(`${name}: the run itself`, `${r.result.error}: ${r.result.errorDetail ?? ''}`.slice(0, 160));
+}
+// A question that is part of a conversation: the session is kept under the app's id.
+{
+  const id = crypto.randomUUID();
+  const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, { id, resume: false });
+  check('chat, in a conversation: every flag and rule is accepted', !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
+  check('chat, in a conversation: the session has the id the app gave it', r.init?.sessionId === id, r.init?.sessionId ?? '');
 }
 console.log(`\nClaude Code ${version ?? 'of unknown version'}`);
 
@@ -287,7 +298,7 @@ async function captureStreams() {
     check('capture: the filing finishes', job.status === 'done' || job.status === 'attention', `${job.error ?? job.status}${job.lint ? `, findings: ${job.lint.findings.map((f) => f.code).join(', ') || 'none'}` : ''}`);
   }
 
-  const chat = runClaude({ mode: 'chat', prompt: chatPrompt('Who checks returned items, and when is a refund released?'), cwd: cluster, timeoutMs: 180_000 });
+  const chat = runClaude({ mode: 'chat', prompt: chatPrompt('Who checks returned items, and when is a refund released?', CLUSTER), cwd: cluster, layout: CLUSTER, timeoutMs: 180_000 });
   const drain = (async () => {
     for await (const line of chat.lines) void line;
   })();

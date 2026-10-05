@@ -18,11 +18,13 @@ import { Button, Card, Badge, INPUT, SectionTitle } from '@/components/ui';
  */
 
 export interface PlanPage {
-  kind: 'entity' | 'concept' | 'comparison' | 'query';
+  /** One of the kinds of page the wiki has: 'entity', 'source', and so on. */
+  kind: string;
   name: string;
   summary: string;
   quote: string;
   existing: boolean;
+  facets?: Record<string, string[]>;
 }
 
 export interface Plan {
@@ -36,12 +38,24 @@ export interface Plan {
   skipped: { what: string; why: string }[];
 }
 
-const KIND_LABEL: Record<PlanPage['kind'], string> = {
+/** What a kind of page is, in the reader's words. A kind not named here is shown as it is. */
+const KIND_LABEL: Record<string, string> = {
+  source: 'summary of the document',
   entity: 'person or thing',
   concept: 'idea or process',
   comparison: 'comparison',
   query: 'recurring question',
+  synthesis: 'analysis or answer',
 };
+const kindLabel = (kind: string): string => KIND_LABEL[kind] ?? kind;
+
+/** "person or thing · harbour-bakery · finance, operations": what the page is, and what it is about. */
+function noteOf(page: PlanPage): string {
+  const facets = Object.values(page.facets ?? {})
+    .filter((values) => values.length > 0)
+    .map((values) => values.join(', '));
+  return [kindLabel(page.kind), ...facets].join(' · ');
+}
 
 export function PlanReview({
   plan,
@@ -91,7 +105,7 @@ export function PlanReview({
       {created.length > 0 && (
         <Section title="New to the wiki">
           {created.map((p, i) => (
-            <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
+            <Item key={i} title={p.name} note={noteOf(p)} body={p.summary} quote={p.quote} />
           ))}
         </Section>
       )}
@@ -99,7 +113,7 @@ export function PlanReview({
       {updated.length > 0 && (
         <Section title="Already known, and something new about it">
           {updated.map((p, i) => (
-            <Item key={i} title={p.name} note={KIND_LABEL[p.kind]} body={p.summary} quote={p.quote} />
+            <Item key={i} title={p.name} note={noteOf(p)} body={p.summary} quote={p.quote} />
           ))}
         </Section>
       )}

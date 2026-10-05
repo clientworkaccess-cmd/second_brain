@@ -7,9 +7,11 @@ an answer with the pages it came from.
 Next.js, one process. The agent is Claude Code, started as a child process and
 signed in with the team's Claude subscription. There is no API key anywhere.
 
-**Where this stands.** Stage 1 of 3: everything the older dashboard did, on
-Claude Code instead of Hermes. The real wiki's structure (Stage 2) and the
-Second Brain editor and graph (Stage 3) are not in here yet.
+**Where this stands.** Stage 1 of 3, everything the older dashboard did on
+Claude Code instead of Hermes, is done. Stage 2, the real wiki's structure, is
+in: a wiki kept by hand with Claude Code can be brought in as it is, and its
+facets are read, checked and used (see "Two layouts"). Stage 3, the desktop app's
+editor and its WebGL graph, is in.
 
 It looks and is laid out like the Second Brain desktop app, on purpose:
 [`DESIGN.md`](DESIGN.md). What the app assumes about the Claude binary, and what
@@ -33,7 +35,9 @@ npm run dev
 
 `hash-password` asks for a password and prints three lines. Put them in
 `.env.local` in place of the three empty ones. Sign-in stays closed until all
-three are set; there is no built-in login.
+three are set; there is no built-in login. `npm run totp-secret` prints a fourth
+line, `AUTH_TOTP_SECRET`, and the key to add to an authenticator app; set, the
+sign-in asks for the app's six-digit code too. Locally it is easier left out.
 
 `.env.example` points `CLAUDE_CMD` at `scripts/fake-claude.mjs`, a stand-in that
 speaks the same protocol as the real binary, writes plausible pages and streams
@@ -54,11 +58,13 @@ npm run build && npm run serve
 | `npm run check` | The six below, in order |
 | `npm run check:stream` | The stream parser, against streams captured from the real binary and against the stand-in |
 | `npm run check:auth` | What gets through without a session, what counts as a session, the password, the throttle |
-| `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, and a planner that misbehaves |
+| `npm run check:pipeline` | Plan, approve, reject, revise, a stale plan, a signed-out agent, a planner that misbehaves, a wiki that files at once, and the undo |
 | `npm run check:lint` | The check that runs after every filing |
 | `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
+| `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
+| `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
-| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, images served, refused and added, a page renamed and one deleted, the trail, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |
 
@@ -129,11 +135,17 @@ Type `/login`, open the link it prints in a browser, finish there, then `/exit`.
 ```bash
 sudo cp /opt/brain-app/.env.example /opt/brain-app/.env
 sudo npm --prefix /opt/brain-app run hash-password -- you@example.com
+sudo npm --prefix /opt/brain-app run totp-secret
 sudoedit /opt/brain-app/.env
 sudo chown root:root /opt/brain-app/.env && sudo chmod 600 /opt/brain-app/.env
 ```
 
-In `.env`, besides the three sign-in lines:
+`totp-secret` prints the second factor: the `AUTH_TOTP_SECRET` line for the
+env file and the key to add to an authenticator app on the phone. Do it now,
+before the site is reachable; it can be left out, and the sign-in then takes
+the password alone.
+
+In `.env`, besides the sign-in lines:
 
 ```bash
 WIKI_ROOT=/var/brain-data
@@ -182,6 +194,82 @@ failure. Repeat step 4, then upload the document again.
 
 ---
 
+## Sign-in
+
+One login, shared, with a password and, where `AUTH_TOTP_SECRET` is set, the
+six-digit code from an authenticator app. Five wrong guesses block that address
+for a while; a code is taken once.
+
+A session lives in a signed cookie for thirty days. What the server keeps about
+sessions is in `<WIKI_ROOT>/.dashboard/auth.json`: which are open, which were
+ended, and an epoch that "Sign out everywhere" moves on, so that every cookie
+from before it is refused. The middleware learns of both through
+`/api/auth/state` and keeps them for five seconds, which is the most a session
+ended elsewhere can go on for.
+
+The Security page (the shield in the sidebar of the front page) lists the
+browsers that are signed in, from where and since when, and ends any of them,
+or all at once. It also shows the trail: every sign-in and refusal, every
+session ended, every wiki made, every setting changed, every document read,
+filed, discarded or undone, every page saved — when, from where and by which
+session. The trail is `<WIKI_ROOT>/.dashboard/audit.log`, one line of JSON per
+event, appended and never rewritten, set aside as `audit-1.log` past 8 MB. It
+never holds a password, a code, a cookie or a page's text.
+
+To move the second factor to another phone: `npm run totp-secret` again, set
+the new secret, restart, add the new key to the app. To turn it off, empty the
+line and restart. Changing `SESSION_SECRET` signs everyone out as well.
+
+## Two layouts
+
+A wiki is a folder under `WIKI_ROOT`. There is no list of them anywhere: the
+app reads the folders. Two layouts are recognised, from what is in the folder.
+
+| | A cluster | A brain |
+|---|---|---|
+| Made by | this app, from the interview on the "New cluster" page | a person and their own Claude Code, before it came here |
+| Told apart by | `index.md` at the top | `wiki/index.md` |
+| The rules | `SCHEMA.md` | `CLAUDE.md` |
+| The pages | `entities/`, `concepts/`, `comparisons/`, `queries/` beside the rules | `wiki/sources/`, `entities/`, `concepts/`, `synthesis/`, plus `overview.md` and `businesses.md` beside the index |
+| Links | by name: `[[Mark Chen]]` | by file name: `[[mark-chen]]` |
+| Sources | `raw/`, under the name they were uploaded by | `raw/`, under the day they were filed: `2026-09-22-q3-board-pack.md`, with the uploaded file beside it |
+| A page for each source | no | yes, in `wiki/sources/` |
+| The rules the agent is given | `prompts/llm-wiki.md` | `prompts/brain-wiki.md`, which defers to the folder's own `CLAUDE.md` |
+| What the agent may write | anything in the folder but the rules and the sources | `wiki/` and nothing else |
+| Committed after a filing | the folder | `wiki/`, `raw/` and `CLAUDE.md`, and nothing else in the folder |
+| Facets | none | `business` and `area` on every page: the businesses from `wiki/businesses.md`, the areas from the table in `CLAUDE.md` |
+
+Both are made from the "New cluster" interview. A folder of pages that neither
+layout names is shown all the same. Everything that knows one layout from the
+other is in `src/lib/layout.ts`.
+
+**Facets.** In a brain a folder says what kind of page it holds and nothing
+else; which business a page concerns and what kind of work it is about are in
+the block at its top. The app reads the values a page may carry from the wiki
+itself, so a business added to the registry page is known at once. The page
+tree and the search filter by them, the graph groups by them, a page shows them
+as links to every page that shares them, and a plan says what each page it
+proposes is about. After every filing the check reports a page whose block
+breaks the rules: a business the registry does not have, an area too many, a
+type that is not the folder's, a date that is not a date. Reported, never
+refused: the pages stay as the agent wrote them, and a person decides.
+
+**Bringing a brain in.** Copy the folder into `WIKI_ROOT` under a name in
+lower case, digits and hyphens (`northwind-brain`, not `Northwind-Brain`), owned by
+the service user. It appears on the front page at once. The first filing into
+it makes it a git repository, with a commit of what it held before, so that
+every filing can be undone. Leave out anything in the folder that does not
+belong to the wiki: the agent can read the whole folder, and a working copy of
+a mailbox is not something to hand it.
+
+To try the app with a brain of real size without one:
+
+```bash
+npm run gen-brain -- .wiki-dev/northwind --pages 350 --links 10
+```
+
+Everything in it is made up.
+
 ## How it fits together
 
 ```
@@ -196,10 +284,10 @@ claude                working directory: /var/brain-data/<cluster>
 /var/brain-data/<cluster>/
 ```
 
-**Who writes what.** The app creates the cluster directory, `SCHEMA.md`, the
-empty `index.md` and `log.md`, a git repository per cluster, and everything
-under `.dashboard/`. The agent writes every page and keeps `index.md` and
-`log.md` current. The app never writes a wiki page.
+**Who writes what.** The app creates a cluster's directory, `SCHEMA.md`, the
+empty `index.md` and `log.md`, a git repository per wiki, and everything
+under `.dashboard/`. The agent writes every page and keeps the index and the
+log current. The app never writes a wiki page.
 
 **What is reachable without signing in.** The login page, its endpoint, the
 favicon and the hashed build output under `/_next/static/`. Nothing else. The
@@ -207,6 +295,55 @@ image optimizer is switched off and behind the login as well.
 
 **Transports.** JSON for anything that finishes in milliseconds. Server-sent
 events for filing progress and chat.
+
+**Filing waits for approval, unless a person decides otherwise.** Per wiki,
+in the About panel: every plan is shown first (the default), or a plan is
+carried out as soon as it is made. An automatic filing reports what it wrote,
+and any filing can be undone: the commit that captured it is reverted, pages
+and source together, in a commit of its own. A filing that a later one built
+on cannot be undone on its own; undo the later one first.
+
+**A page can be edited by hand.** "Edit" in the status bar opens the page in
+the desktop app's editor: live preview, the same formatting commands, `[[`
+completion. What is typed is saved on its own a moment after the typing stops.
+A page that changed on disk since it was opened is not overwritten: the
+writer is told and chooses. "Done" saves, makes a restore point, and goes
+back to reading. A new page starts from the page tree, with the block the
+rules ask for already in it. Only pages can be written this way: not the
+rules, not the sources, nothing outside the pages. Beside every page, the Graph panel
+shows the page's own neighbourhood: the pages one or two links away, this
+one marked; a node opens its page. A page can be renamed or
+deleted from the status bar. A rename is a new title: the file name follows
+it, and so does every link to the page, in every page and in the index
+(links written as an alias stay). A delete says first how many pages link
+here, then takes the page out and its line out of the index. Both make a
+restore point.
+
+**Images show in pages.** `![[photo.png]]` shows the file, found by its name
+(one in the page's own folder first, then the shortest path); `![[photo.png|300]]`
+sets the width; `![](../raw/assets/photo.png)` names it by path. An image
+pasted or dropped into the editor is added to the wiki's `raw/assets` and
+embedded where the cursor is. Only images are served (png, jpg, gif, webp,
+avif, bmp, svg), only from inside the wiki, never from a hidden or private
+folder, and never a page's text. A remote image in a document is left out:
+its address can tell someone who opened the page.
+
+**Every filing is on record.** The Filings panel on a wiki's front page lists
+them, newest first, with what became of each: filed, needing attention,
+waiting for a decision, discarded, failed, undone. A filing in the wiki can be
+undone from there; a plan waiting in another browser can be picked up in this
+one.
+
+**The wiki, held to its rules.** The check page (the list icon in the page
+tree's header) looks at every page: links both ways, the index both ways,
+every block against the rules, and files that would steer a run. Nothing is
+changed; a person reads the report and decides. The check after a filing
+looks only at what that filing touched.
+
+**A question can follow the last.** The chat keeps one conversation per wiki
+for as long as the browser tab is: the agent resumes the session it kept and
+remembers what was asked. "New conversation" starts afresh. A conversation the
+binary no longer has is started again, and the reader is told.
 
 **Filing outlives its request.** `POST /api/upload` returns a job id as soon as
 the file is on disk. A refresh, a navigation or a proxy timeout cannot stop a

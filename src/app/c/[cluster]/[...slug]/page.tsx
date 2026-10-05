@@ -1,13 +1,20 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { FileText } from 'lucide-react';
+import { FileText, PenLine } from 'lucide-react';
+import { listImages } from '@/lib/assets';
 import { HttpError } from '@/lib/config';
+import { buildGraph } from '@/lib/graph';
+import { localGraph } from '@/lib/localGraph';
+import { inPages, layoutOf } from '@/lib/layout';
 import { outlineOf, wordCount } from '@/lib/outline';
-import { backlinksOf, readPage, titleIndex } from '@/lib/wiki';
+import { backlinksOf, linkIndex, readPage } from '@/lib/wiki';
+import { pageHref, resolveLink } from '@/lib/wikilinks';
 import { Center } from '@/components/frame/Frame';
 import { RightSidebar } from '@/components/frame/RightSidebar';
 import { StatusItems } from '@/components/frame/controls';
+import { LocalGraph } from '@/components/LocalGraph';
 import { MarkdownView } from '@/components/MarkdownView';
+import { PageActions } from '@/components/PageActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,22 +28,25 @@ export default async function WikiPage({
 
   let page;
   try {
-    page = await readPage(cluster, slug.join('/'));
+    page = await readPage(cluster, slug.map((part) => decodeURIComponent(part)).join('/'));
   } catch (err) {
     if (err instanceof HttpError) notFound();
     throw err;
   }
 
-  const [titles, backlinks] = await Promise.all([titleIndex(cluster), backlinksOf(cluster, page.slug)]);
+  const [titles, backlinks, images, layout, whole] = await Promise.all([linkIndex(cluster), backlinksOf(cluster, page.slug), listImages(cluster), layoutOf(cluster), buildGraph(cluster)]);
+  const around = localGraph(whole, page.slug, 2);
+  const inside = inPages(layout, page.slug);
+  const fromDir = inside.includes('/') ? inside.slice(0, inside.lastIndexOf('/')) : '';
   const outline = outlineOf(page.body);
-  const href = `/c/${cluster}/${page.slug}`;
+  const href = pageHref(cluster, page.slug);
 
   return (
     <>
       <Center scope={cluster} tab={{ href, title: page.title }} home={`/c/${cluster}`} hasRight>
         <article className="preview">
-          <Properties properties={page.properties} />
-          <MarkdownView source={page.body} cluster={cluster} titles={titles} outline={outline} />
+          <Properties cluster={cluster} properties={page.properties} facets={page.facets} problems={page.problems} />
+          <MarkdownView source={page.body} cluster={cluster} titles={titles} outline={outline} images={images} fromDir={fromDir} />
         </article>
       </Center>
 
@@ -52,7 +62,7 @@ export default async function WikiPage({
                 <div className="backlinks">
                   {backlinks.map((link) => (
                     <div key={link.slug} className="backlink-group">
-                      <Link className="backlink-source" href={`/c/${cluster}/${link.slug}`}>
+                      <Link className="backlink-source" href={pageHref(cluster, link.slug)}>
                         <FileText size={14} className="flex-none text-faint" />
                         <span>{link.title}</span>
                       </Link>
@@ -61,6 +71,11 @@ export default async function WikiPage({
                   ))}
                 </div>
               ),
+          },
+          {
+            id: 'graph',
+            label: 'Graph',
+            content: <LocalGraph graph={around} cluster={cluster} current={page.slug} />,
           },
           {
             id: 'outline',
@@ -92,9 +107,9 @@ export default async function WikiPage({
               ) : (
                 <nav className="outline-list" aria-label="Links from this page">
                   {page.links.map((link) => {
-                    const target = titles.get(link.toLowerCase());
+                    const target = resolveLink(titles, link);
                     return target ? (
-                      <Link key={link} className="outline-item" href={`/c/${cluster}/${target}`}>
+                      <Link key={link} className="outline-item" href={pageHref(cluster, target)}>
                         {link}
                       </Link>
                     ) : (
@@ -120,43 +135,80 @@ export default async function WikiPage({
         </span>
         <span className="statusbar-item muted">{wordCount(page.body)} words</span>
         <span className="statusbar-item muted">updated {page.updatedAt.slice(0, 10)}</span>
+        <Link className="statusbar-item edit-link" href={`/c/${cluster}/edit/${page.slug.split('/').map(encodeURIComponent).join('/')}`} title="Open this page in the editor">
+          <PenLine size={12} />
+          Edit
+        </Link>
+        <PageActions cluster={cluster} slug={page.slug} title={page.title} backlinks={backlinks.length} />
       </StatusItems>
     </>
   );
 }
 
-/** The block at the top of the page, as the desktop app shows it. */
-function Properties({ properties }: { properties: [string, string][] }) {
-  if (properties.length === 0) return null;
+/**
+ * The block at the top of the page, as the desktop app shows it. A facet's
+ * values are links to the pages that share them; tags are chips; and what the
+ * rules would find wrong with the block is said under it.
+ */
+function Properties({
+  cluster,
+  properties,
+  facets,
+  problems,
+}: {
+  cluster: string;
+  properties: [string, string][];
+  facets: Record<string, string[]>;
+  problems: string[];
+}) {
+  if (properties.length === 0 && problems.length === 0) return null;
+  const chips = (name: string, value: string) =>
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
   return (
     <details className="properties" open>
       <summary>Properties</summary>
-      <table>
-        <tbody>
-          {properties.map(([name, value]) => (
-            <tr key={name}>
-              <th scope="row">{name}</th>
-              <td>
-                {name === 'tags' ? (
-                  <span className="flex flex-wrap gap-1">
-                    {value
-                      .split(',')
-                      .map((tag) => tag.trim())
-                      .filter(Boolean)
-                      .map((tag) => (
+      {properties.length > 0 && (
+        <table>
+          <tbody>
+            {properties.map(([name, value]) => (
+              <tr key={name}>
+                <th scope="row">{name}</th>
+                <td>
+                  {name in facets ? (
+                    <span className="flex flex-wrap gap-1">
+                      {chips(name, value).map((item) => (
+                        <Link key={item} className="tag" href={`/c/${cluster}?${encodeURIComponent(name)}=${encodeURIComponent(item.toLowerCase())}`} title={`Every page with this ${name}`}>
+                          {item}
+                        </Link>
+                      ))}
+                    </span>
+                  ) : name === 'tags' ? (
+                    <span className="flex flex-wrap gap-1">
+                      {chips(name, value).map((tag) => (
                         <span key={tag} className="tag">
                           {tag}
                         </span>
                       ))}
-                  </span>
-                ) : (
-                  value
-                )}
-              </td>
-            </tr>
+                    </span>
+                  ) : (
+                    value
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {problems.length > 0 && (
+        <ul className="properties-problems" aria-label="What the rules would change about this block">
+          {problems.map((problem) => (
+            <li key={problem}>This page {problem}.</li>
           ))}
-        </tbody>
-      </table>
+        </ul>
+      )}
     </details>
   );
 }

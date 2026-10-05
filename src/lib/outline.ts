@@ -1,9 +1,10 @@
 /**
  * The headings of a page, for the outline panel.
  *
- * Pure, and shared by the two places that must agree: the panel that links to a
- * heading and the reading view that gives the heading its id. Both take the ids
- * from the list this returns, in order, so they cannot disagree.
+ * Pure, and shared by the places that must agree: the panel that links to a
+ * heading, the reading view that gives the heading its id, and a link that
+ * points at a heading of another page. All take the ids from here, so they
+ * cannot disagree.
  */
 
 export interface Heading {
@@ -32,7 +33,7 @@ export function outlineOf(markdown: string): Heading[] {
 
     const text = plain(match[2]);
     if (!text) continue;
-    const base = slugify(text) || 'section';
+    const base = headingId(text);
     const seen = used.get(base) ?? 0;
     used.set(base, seen + 1);
     out.push({ depth: match[1].length, text, id: seen === 0 ? base : `${base}-${seen + 1}` });
@@ -49,12 +50,15 @@ function plain(text: string): string {
     .trim();
 }
 
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
+/** "Edge cases" -> "edge-cases". The id of the first heading with those words. */
+export function headingId(text: string): string {
+  return (
+    text
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'section'
+  );
 }
 
 export function wordCount(text: string): number {

@@ -88,8 +88,8 @@ export function streamLogDir(): string | null {
   return dir ? path.resolve(APP_DIR, dir) : null;
 }
 
-/** The wiki rules every run is given. Replaces the skill the previous agent carried. */
-export const WIKI_RULES_FILE = path.join(APP_DIR, 'prompts', 'llm-wiki.md');
+/** Where the wiki rules are kept that every run is given. Which file, the layout of the wiki decides. */
+export const PROMPTS_DIR = path.join(APP_DIR, 'prompts');
 
 /** Dashboard-owned state. Deliberately outside any cluster so per-cluster git
  *  history stays a clean record of what the agent changed. */
@@ -101,6 +101,8 @@ export const STAGING_DIR = path.join(DASHBOARD_DIR, 'staging');
 export const PLANS_DIR = path.join(DASHBOARD_DIR, 'plans');
 export const ORIGINALS_DIR = path.join(DASHBOARD_DIR, 'originals');
 export const TRANSCRIPTS_DIR = path.join(DASHBOARD_DIR, 'transcripts');
+/** What a person decided about each wiki, such as whether a filing waits for approval. See lib/settings.ts. */
+export const SETTINGS_DIR = path.join(DASHBOARD_DIR, 'settings');
 
 /** Hard ceiling on a single ingest before we give up and mark the job failed. */
 export const INGEST_TIMEOUT_MS = Number(process.env.INGEST_TIMEOUT_MS ?? 15 * 60 * 1000);

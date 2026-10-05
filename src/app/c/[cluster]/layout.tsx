@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { describeCluster, exists } from '@/lib/clusters';
 import { clusterPath, assertClusterName } from '@/lib/config';
 import { buildGraph } from '@/lib/graph';
-import { listPages, PAGE_DIRS } from '@/lib/wiki';
+import { listPages } from '@/lib/wiki';
 import { Frame } from '@/components/frame/Frame';
 import { PageSidebar } from '@/components/Sidebar';
 
@@ -27,12 +27,12 @@ export default async function ClusterLayout({
 
   if (!(await exists(clusterPath(cluster)))) notFound();
 
-  const [meta, pages, graph] = await Promise.all([describeCluster(cluster), listPages(cluster), buildGraph(cluster)]);
-  const pageCount = PAGE_DIRS.reduce((n, dir) => n + pages[dir].length, 0);
+  const [meta, listing, graph] = await Promise.all([describeCluster(cluster), listPages(cluster), buildGraph(cluster)]);
+  const pageCount = listing.total;
 
   return (
     <Frame
-      sidebar={<PageSidebar cluster={cluster} pages={pages} />}
+      sidebar={<PageSidebar cluster={cluster} listing={listing} />}
       status={
         <>
           <Link className="statusbar-item" href={`/c/${cluster}`} title={meta.scope}>

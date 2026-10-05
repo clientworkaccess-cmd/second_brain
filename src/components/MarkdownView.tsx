@@ -2,6 +2,8 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Link from 'next/link';
 import type { ComponentProps, ReactNode } from 'react';
+import { assetHref, resolveImagePath } from '@/lib/assetPaths';
+import { remarkCallouts } from '@/lib/callouts';
 import { linkifyWikilinks } from '@/lib/wikilinks';
 import type { Heading } from '@/lib/outline';
 
@@ -22,13 +24,25 @@ export function MarkdownView({
   cluster,
   titles,
   outline,
+  images,
+  fromDir,
 }: {
   source: string;
   cluster: string;
   titles: Map<string, string>;
   outline?: Heading[];
+  /** The images the wiki has, as paths from its root. Without them, an image is shown as omitted. */
+  images?: string[];
+  /** The page's own folder, from the wiki's root, for images named by a relative path. */
+  fromDir?: string;
 }) {
-  const linked = linkifyWikilinks(source, cluster, titles);
+  const imageFor = images
+    ? (target: string): string | null => {
+        const rel = resolveImagePath(images, target, fromDir ?? '');
+        return rel ? assetHref(cluster, rel) : null;
+      }
+    : undefined;
+  const linked = linkifyWikilinks(source, cluster, titles, imageFor);
 
   let seen = 0;
   const heading = (Tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6') =>
@@ -39,7 +53,7 @@ export function MarkdownView({
 
   return (
     <Markdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkCallouts]}
       components={{
         h1: heading('h1'),
         h2: heading('h2'),
@@ -72,9 +86,18 @@ export function MarkdownView({
             </a>
           );
         },
-        img() {
-          // Images inside documents are untrusted remote references.
-          return <span className="muted small">[image omitted]</span>;
+        img({ src, alt, title }: ComponentProps<'img'>) {
+          const source = typeof src === 'string' ? src : '';
+          // An image of the wiki, by its address or by a path a page wrote.
+          // Anything remote is left out: a document can carry an address that
+          // tells its owner who opened it.
+          const href = source.startsWith('/api/asset?') ? source : !/^[a-z][a-z0-9+.-]*:/i.test(source) && imageFor ? imageFor(source) : null;
+          if (!href) {
+            return <span className="muted small">{source && !/^[a-z][a-z0-9+.-]*:/i.test(source) ? `[image not found: ${source}]` : '[image omitted]'}</span>;
+          }
+          const width = /^w=(\d+)$/.exec(title ?? '')?.[1];
+          // eslint-disable-next-line @next/next/no-img-element
+          return <img className="internal-embed" src={href} alt={alt ?? ''} width={width ? Number(width) : undefined} loading="lazy" />;
         },
       }}
     >

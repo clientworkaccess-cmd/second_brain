@@ -2,152 +2,145 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceSimulation,
-  type Simulation,
-  type SimulationNodeDatum,
-} from 'd3-force';
-import { RotateCcw } from 'lucide-react';
-import type { Graph, GraphNode } from '@/lib/graph';
+import { Maximize2 } from 'lucide-react';
+import type { Graph } from '@/lib/graph';
+import { areaHues, areaStats, groupHues } from '@/graph/data';
+import { readPalette, toData } from '@/graph/palette';
+import { WebGLGraph } from '@/graph/webglGraph';
 
 /**
- * The cluster as a graph: every page a node, every [[wikilink]] an edge.
+ * The wiki as a graph: every page a node, every [[wikilink]] an edge.
  *
- * Laid out and coloured like the desktop app's graph: a header above, the
- * graph filling the pane, the legend in its corner, one colour per folder. The
- * desktop draws with WebGL because a vault reaches thousands of links; a
- * cluster reaches tens to low hundreds of pages, where SVG is fast and needs no
- * more code than this. The layout and the data are separate (see lib/graph.ts),
- * so the renderer can be swapped without touching anything upstream.
+ * Drawn by the desktop app's WebGL engine (src/graph/webglGraph.ts, that
+ * app's file as it is): links are one draw call and nodes another, so a wiki
+ * of thousands of links draws at full speed; labels are drawn for the hovered
+ * neighbourhood and, zoomed in, for everything. The pages are grouped by
+ * folder, or by a facet the wiki has: then a page with several values is a
+ * pie, each value gathers its pages around a place of its own, a soft disc is
+ * drawn behind each, and a row of the legend highlights one and dims the rest.
+ *
+ * The layout and the data are separate (lib/graph.ts); this file turns the
+ * one into what the engine takes, and owns the header and the legend.
  */
 
-interface Node extends SimulationNodeDatum, GraphNode {}
-interface Link {
-  source: Node;
-  target: Node;
-}
+const FOLDERS = 'folders';
 
-const LABELS: Record<GraphNode['kind'], string> = {
-  entities: 'Entities',
-  concepts: 'Concepts',
-  comparisons: 'Comparisons',
-  queries: 'Saved answers',
-  missing: 'unresolved',
-};
-
-/**
- * One hue per folder, spread by the golden angle over the folder names in
- * alphabetical order. This is the desktop app's rule (core/graph.ts there), so
- * the same wiki gets the same kind of colours in both.
- */
-function folderHues(kinds: GraphNode['kind'][]): Map<string, number> {
-  const sorted = [...new Set(kinds)].filter((k) => k !== 'missing').sort((a, b) => a.localeCompare(b));
-  return new Map(sorted.map((kind, i) => [kind, (i * 137.508) % 360]));
-}
-
-const colourOf = (hue: number | undefined): string =>
-  hue === undefined ? 'var(--text-faint)' : `hsl(${Math.round(hue)} 62% var(--graph-lightness))`;
+/** Hue -> the CSS colour the engine's shader uses, so the legend matches the dots. */
+const colourOf = (hue: number | undefined, dark: boolean): string =>
+  hue === undefined ? 'var(--text-faint)' : `hsl(${Math.round(hue)}, 62%, ${dark ? 64 : 42}%)`;
 
 export function GraphView({ graph, cluster }: { graph: Graph; cluster: string }) {
   const router = useRouter();
   const hostRef = useRef<HTMLDivElement>(null);
-  const simRef = useRef<Simulation<Node, undefined> | null>(null);
+  const engineRef = useRef<WebGLGraph | null>(null);
+  const hrefs = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n.href])), [graph]);
+  const hrefsRef = useRef(hrefs);
+  hrefsRef.current = hrefs;
 
-  const [size, setSize] = useState({ width: 900, height: 600 });
-  const [, setTick] = useState(0);
-  const [hovered, setHovered] = useState<string | null>(null);
-  const [dragging, setDragging] = useState<string | null>(null);
+  const [mode, setMode] = useState<string>(FOLDERS);
+  const [focus, setFocus] = useState<string | null>(null);
+  const [dark, setDark] = useState(false);
 
-  // Build the simulation datasets once per graph. d3 mutates these in place.
-  const { nodes, links } = useMemo(() => {
-    const nodes: Node[] = graph.nodes.map((n) => ({ ...n }));
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    const links: Link[] = graph.links
-      .map((l) => ({ source: byId.get(l.source)!, target: byId.get(l.target)! }))
-      .filter((l) => l.source && l.target);
-    return { nodes, links };
-  }, [graph]);
+  // The grouping is remembered per wiki, as the desktop app remembers its area view.
+  useEffect(() => {
+    try {
+      const kept = localStorage.getItem(`sb-graph-mode:${cluster}`);
+      if (kept && (kept === FOLDERS || graph.facets.some((f) => f.key === kept))) setMode(kept);
+    } catch {
+      /* the default, then */
+    }
+  }, [cluster, graph.facets]);
+  const chooseMode = (next: string): void => {
+    setMode(next);
+    setFocus(null);
+    try {
+      localStorage.setItem(`sb-graph-mode:${cluster}`, next);
+    } catch {
+      /* lasts for this page */
+    }
+  };
 
-  const hues = useMemo(() => folderHues(graph.nodes.map((n) => n.kind)), [graph]);
+  const facet = graph.facets.find((f) => f.key === mode) ?? null;
+  const data = useMemo(() => toData(graph, facet?.key ?? null), [graph, facet]);
+  const folderHues = useMemo(() => groupHues(data.nodes.map((n) => n.group)), [data]);
+  const valueHues = useMemo(() => areaHues(data.nodes.flatMap((n) => n.areas)), [data]);
+  const stats = useMemo(() => areaStats(data.nodes), [data]);
   const counts = useMemo(() => {
     const map = new Map<string, number>();
-    for (const node of graph.nodes) map.set(node.kind, (map.get(node.kind) ?? 0) + 1);
+    for (const node of data.nodes) map.set(node.group, (map.get(node.group) ?? 0) + 1);
     return map;
-  }, [graph]);
+  }, [data]);
 
+  // The engine, made once. It reads the theme from the page and follows it.
   useEffect(() => {
-    const element = hostRef.current;
-    if (!element) return;
-    const observer = new ResizeObserver(([entry]) => {
-      setSize({
-        width: Math.max(320, Math.round(entry.contentRect.width)),
-        height: Math.max(320, Math.round(entry.contentRect.height)),
-      });
+    const host = hostRef.current;
+    if (!host) return;
+    const engine = new WebGLGraph(host, readPalette(host), {
+      onNodeClick: (id) => {
+        const href = hrefsRef.current.get(id);
+        if (href) router.push(href);
+      },
     });
-    observer.observe(element);
-    return () => observer.disconnect();
+    engineRef.current = engine;
+    const follow = (): void => {
+      const palette = readPalette(host);
+      setDark(palette.dark);
+      engine.setPalette(palette);
+    };
+    follow();
+    const theme = new MutationObserver(follow);
+    theme.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    const system = window.matchMedia('(prefers-color-scheme: dark)');
+    system.addEventListener('change', follow);
+    return () => {
+      theme.disconnect();
+      system.removeEventListener('change', follow);
+      engine.destroy();
+      engineRef.current = null;
+    };
+    // The router is stable; the engine outlives renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Mode first, so a fresh engine lays its first data set out in the right mode straight away.
   useEffect(() => {
-    if (nodes.length === 0) return;
+    engineRef.current?.setAreaMode(facet !== null);
+  }, [facet]);
+  useEffect(() => {
+    engineRef.current?.setData(data);
+  }, [data]);
+  useEffect(() => {
+    engineRef.current?.setGroupHues(folderHues);
+  }, [folderHues]);
+  useEffect(() => {
+    engineRef.current?.setAreaHues(valueHues);
+  }, [valueHues]);
+  useEffect(() => {
+    engineRef.current?.setFocusArea(focus);
+  }, [focus]);
 
-    const simulation = forceSimulation<Node>(nodes)
-      .force('link', forceLink<Node, Link>(links).id((d) => d.id).distance(110).strength(0.35))
-      .force('charge', forceManyBody().strength(-420))
-      .force('center', forceCenter(size.width / 2, size.height / 2))
-      .force('collide', forceCollide<Node>().radius((d) => radius(d) + 14))
-      .alphaDecay(0.045);
-
-    // Re-render on every tick. React state is the frame driver here rather than
-    // direct DOM mutation, which keeps the markup declarative at this scale.
-    simulation.on('tick', () => setTick((t) => t + 1));
-    simRef.current = simulation;
-
-    return () => {
-      simulation.stop();
-      simRef.current = null;
+  // Escape clears the narrowing, as it does in the desktop app.
+  useEffect(() => {
+    if (!focus) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setFocus(null);
     };
-  }, [nodes, links, size.width, size.height]);
-
-  function onPointerDown(event: React.PointerEvent, node: Node) {
-    (event.target as Element).setPointerCapture(event.pointerId);
-    setDragging(node.id);
-    simRef.current?.alphaTarget(0.25).restart();
-    node.fx = node.x;
-    node.fy = node.y;
-  }
-
-  function onPointerMove(event: React.PointerEvent, node: Node) {
-    if (dragging !== node.id) return;
-    const rect = (event.currentTarget as SVGElement).ownerSVGElement?.getBoundingClientRect();
-    if (!rect) return;
-    node.fx = ((event.clientX - rect.left) / rect.width) * size.width;
-    node.fy = ((event.clientY - rect.top) / rect.height) * size.height;
-  }
-
-  function onPointerUp(node: Node) {
-    if (dragging !== node.id) return;
-    setDragging(null);
-    simRef.current?.alphaTarget(0);
-    node.fx = null;
-    node.fy = null;
-  }
-
-  const neighbours = useMemo(() => {
-    if (!hovered) return null;
-    const set = new Set<string>([hovered]);
-    for (const link of links) {
-      if (link.source.id === hovered) set.add(link.target.id);
-      if (link.target.id === hovered) set.add(link.source.id);
-    }
-    return set;
-  }, [hovered, links]);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [focus]);
 
   const written = graph.nodes.filter((n) => n.kind !== 'missing').length;
+  const missing = graph.nodes.length - written;
+
+  /** The legend's rows: the folders, or the facet's values in the wiki's own order, then whatever else pages carry. */
+  const legend = facet
+    ? (() => {
+        const named = facet.values.map((v) => ({ key: v.value, label: v.label }));
+        const known = new Set(named.map((n) => n.key));
+        const extra = [...valueHues.keys()].filter((k) => !known.has(k)).map((k) => ({ key: k, label: k }));
+        return [...named, ...extra].filter(({ key }) => valueHues.has(key)).map(({ key, label }) => ({ key, label, hue: valueHues.get(key), count: stats.counts.get(key) ?? 0 }));
+      })()
+    : graph.kinds.filter(({ kind }) => kind !== 'missing').map(({ kind, label }) => ({ key: kind, label, hue: folderHues.get(kind), count: counts.get(kind) ?? 0 }));
 
   return (
     <div className="graph-pane">
@@ -158,112 +151,72 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
           {graph.orphans.length > 0 && ` · ${graph.orphans.length} not linked from anywhere`}
         </span>
         <span className="statusbar-spacer" />
-        <button
-          type="button"
-          className="graph-toggle"
-          title="Lay the graph out again"
-          onClick={() => simRef.current?.alpha(1).restart()}
-        >
-          <RotateCcw size={14} />
-          <span>Re-lay out</span>
+        {graph.facets.length > 0 && (
+          <>
+            <button type="button" className={`graph-toggle${mode === FOLDERS ? ' active' : ''}`} onClick={() => chooseMode(FOLDERS)} title="Colour the pages by folder">
+              Folders
+            </button>
+            {graph.facets.map((f) => (
+              <button
+                key={f.key}
+                type="button"
+                className={`graph-toggle${mode === f.key ? ' active' : ''}`}
+                onClick={() => chooseMode(f.key)}
+                title={`Group the pages by ${f.label.toLowerCase()}. A row of the legend highlights one.`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </>
+        )}
+        <button type="button" className="graph-toggle" title="Fit the whole graph in the pane" onClick={() => engineRef.current?.zoomToFit()}>
+          <Maximize2 size={14} />
+          <span>Fit</span>
         </button>
       </div>
 
       <div className="graph-body">
-        <div ref={hostRef} className="graph-host">
-          <svg
-            viewBox={`0 0 ${size.width} ${size.height}`}
-            role="img"
-            aria-label={`${written} pages and ${graph.links.length} links in ${cluster}`}
-          >
-            <g>
-              {links.map((link, i) => {
-                const lit = neighbours ? neighbours.has(link.source.id) && neighbours.has(link.target.id) : false;
-                const broken = link.source.kind === 'missing' || link.target.kind === 'missing';
-                return (
-                  <line
-                    key={i}
-                    x1={link.source.x ?? 0}
-                    y1={link.source.y ?? 0}
-                    x2={link.target.x ?? 0}
-                    y2={link.target.y ?? 0}
-                    stroke={lit ? 'var(--accent)' : 'var(--text-faint)'}
-                    strokeOpacity={neighbours ? (lit ? 0.9 : 0.12) : 0.45}
-                    strokeWidth={1}
-                    strokeDasharray={broken ? '3 3' : undefined}
-                  />
-                );
-              })}
-            </g>
+        <div ref={hostRef} className="graph-host" role="img" aria-label={`${written} pages and ${graph.links.length} links in ${cluster}`} />
 
-            <g>
-              {nodes.map((node) => {
-                const dim = neighbours && !neighbours.has(node.id);
-                const r = radius(node);
-                const missing = node.kind === 'missing';
-                return (
-                  <g
-                    key={node.id}
-                    transform={`translate(${node.x ?? 0}, ${node.y ?? 0})`}
-                    opacity={dim ? 0.2 : 1}
-                    style={{ cursor: node.href ? 'pointer' : 'default' }}
-                    onPointerDown={(e) => onPointerDown(e, node)}
-                    onPointerMove={(e) => onPointerMove(e, node)}
-                    onPointerUp={() => onPointerUp(node)}
-                    onMouseEnter={() => setHovered(node.id)}
-                    onMouseLeave={() => setHovered(null)}
-                    onClick={() => node.href && !dragging && router.push(node.href)}
-                  >
-                    <circle
-                      r={r}
-                      fill={colourOf(hues.get(node.kind))}
-                      fillOpacity={missing ? 0.55 : 1}
-                      stroke={hovered === node.id ? 'var(--accent)' : 'none'}
-                      strokeWidth={2}
-                    />
-                    <text
-                      y={r + 14}
-                      textAnchor="middle"
-                      fontSize={11}
-                      style={{
-                        pointerEvents: 'none',
-                        fill: hovered === node.id ? 'var(--text-normal)' : 'var(--text-muted)',
-                        paintOrder: 'stroke',
-                        stroke: 'var(--bg-primary)',
-                        strokeWidth: 3,
-                      }}
-                    >
-                      {node.label.length > 22 ? node.label.slice(0, 21) + '…' : node.label}
-                    </text>
-                  </g>
-                );
-              })}
-            </g>
-          </svg>
-
-          <div className="graph-legend">
-            {[...hues.entries()].map(([kind, hue]) => (
-              <div key={kind} className="graph-legend-row">
-                <span className="graph-legend-swatch" style={{ background: colourOf(hue) }} />
-                <span>{LABELS[kind as GraphNode['kind']]}</span>
-                <span className="graph-legend-count">{counts.get(kind) ?? 0}</span>
+        <div className={`graph-legend${facet ? ' interactive' : ''}`}>
+          {legend.map(({ key, label, hue, count }) =>
+            facet ? (
+              <button
+                key={key}
+                type="button"
+                className={`graph-legend-row${focus === key ? ' active' : ''}${focus !== null && focus !== key ? ' muted-row' : ''}`}
+                aria-pressed={focus === key}
+                title={focus === key ? 'Show every page again' : `Highlight ${label} and dim the rest`}
+                onClick={() => setFocus(focus === key ? null : key)}
+              >
+                <span className="graph-legend-swatch" style={{ background: colourOf(hue, dark) }} />
+                <span className="graph-legend-label">{label}</span>
+                <span className="graph-legend-count">{count}</span>
+              </button>
+            ) : (
+              <div key={key} className="graph-legend-row">
+                <span className="graph-legend-swatch" style={{ background: colourOf(hue, dark) }} />
+                <span className="graph-legend-label">{label}</span>
+                <span className="graph-legend-count">{count}</span>
               </div>
-            ))}
-            {counts.has('missing') && (
-              <div className="graph-legend-row" title="Links to pages that do not exist yet">
-                <span className="graph-legend-swatch unresolved" />
-                <span>{LABELS.missing}</span>
-                <span className="graph-legend-count">{counts.get('missing')}</span>
-              </div>
-            )}
-          </div>
+            ),
+          )}
+          {facet && stats.none > 0 && (
+            <div className="graph-legend-row" title={`Pages whose block gives no ${facet.label.toLowerCase()}`}>
+              <span className="graph-legend-swatch" style={{ background: 'var(--text-muted)', opacity: 0.45 }} />
+              <span className="graph-legend-label">Without a {facet.label.toLowerCase()}</span>
+              <span className="graph-legend-count">{stats.none}</span>
+            </div>
+          )}
+          {missing > 0 && (
+            <div className="graph-legend-row" title="Links to pages that do not exist yet">
+              <span className="graph-legend-swatch unresolved" />
+              <span className="graph-legend-label">Not written yet</span>
+              <span className="graph-legend-count">{missing}</span>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
-}
-
-/** Well-connected pages read as the hubs they are. */
-function radius(node: GraphNode): number {
-  return 5 + Math.min(11, Math.sqrt(node.degree) * 3);
 }

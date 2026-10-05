@@ -3,7 +3,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { HttpError, ORIGINALS_DIR, STAGING_DIR, assertClusterName, clusterPath } from '@/lib/config';
+import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { ensureDashboardDirs, exists } from '@/lib/clusters';
+import { SESSION_COOKIE } from '@/lib/env-auth';
 import { startPlanning } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -87,6 +89,7 @@ export async function POST(req: NextRequest) {
       originalPath,
     });
 
+    await audit({ event: 'filing-planned', client: clientOf(req), session: sessionLabel(req.cookies.get(SESSION_COOKIE)?.value), detail: `${cluster}: ${baseName}` });
     return NextResponse.json({ jobId: job.id }, { status: 202 });
   } catch (err) {
     if (err instanceof HttpError) {

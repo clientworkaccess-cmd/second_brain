@@ -13,6 +13,7 @@ That is the whole brief. Everything below follows from it.
 | Frame, tree, tabs, status bar, reading view, graph chrome, search panel | The desktop app's stylesheets, carried over with their class names. Here: `src/app/globals.css` |
 | Upload, plan review, chat, the wizard, sign-in | Only this app has them. Built from `src/components/ui.tsx` with the same tokens |
 | The mark | The desktop app's icon, as a vector in `src/components/Logo.tsx` and as `src/app/icon.png` |
+| The editor | The desktop app's editor, its live preview and its toolbar, carried over with their class names. Here: `src/editor/` and the editor rules in `src/app/globals.css` |
 
 When the desktop app changes a token or a rule that is in the first two rows,
 change it here too. When this app needs a rule the desktop app does not have,
@@ -63,9 +64,24 @@ before the first paint.
 ```
 
 - The window does not scroll. The panes do.
-- **Left:** the page tree and the search. On the front page, the clusters.
+- **Left:** the page tree and the search. On the front page, the clusters. The
+  folders are the wiki's own; the pages beside the index come after them, the
+  index first. A wiki of more than sixty pages opens with its folders closed,
+  and opening a page opens its folder. Where the wiki has facets, a drop-down
+  per facet above the tree narrows the tree and the search to one value; the
+  choice stays for as long as the browser tab is.
 - **Centre:** a tab for every page that is open, kept for as long as the browser tab is.
-- **Right:** backlinks, outline and links for a page. Activity and a summary for a cluster.
+- **Right:** backlinks, outline and links for a page. For a cluster: the agent's activity, every filing with what became of it and an undo, and a summary with the one decision a person makes about it: whether a filing waits for approval.
+- **The editor:** the page as the desktop app edits it. Toolbar above, the
+  text filling the pane, Live or Source, the state of the save at the right,
+  Done in the accent colour. A page that changed underneath shows a banner
+  with the choice, never a dialog.
+- **The check page:** the wiki held to its rules, grouped by what is wrong, each remark with a link to the page. Warning colour for what a person may want to look at, danger for what must go.
+- **A page's properties:** the block at its top, as the desktop app shows it. A
+  facet's values are chips that lead to every page sharing them. What the rules
+  would change about the block is said under it, in the warning colour.
+- **Callouts:** `> [!conflict]` and the other kinds are drawn as the desktop
+  app draws them, a coloured bar and a title. Conflict is the warning colour.
 - **Status bar:** the cluster and its size on the left, the page's own facts on the right.
 - Under 900px wide the sidebars lie over the page and open from the tab bar.
 
@@ -84,10 +100,20 @@ class names that collide.
 
 ## The graph
 
-One colour per folder: the hues are spread by the golden angle over the folder
-names in alphabetical order, at 62% saturation, lighter on dark. That is the
-desktop app's rule, so the same wiki gets the same kind of colours in both.
-A link to a page that does not exist is drawn faint and dashed.
+The desktop app's WebGL engine draws it here too (`src/graph/webglGraph.ts`,
+that app's file as it is): links are one draw call and nodes another, so a
+wiki of thousands of links draws at full speed, and the colours, the pies,
+the labels and the regions are the same in both apps.
 
-The desktop app draws with WebGL, because a vault reaches thousands of links.
-This app draws SVG, because a cluster reaches tens to low hundreds of pages.
+One colour per folder: the hues are spread by the golden angle over the folder
+names in alphabetical order, at 62% saturation, lighter on dark. A link to a
+page that does not exist is drawn faint. Labels are drawn for whatever is
+under the pointer with its neighbours, for a highlighted value, and for
+everything once zoomed in.
+
+Where the wiki has facets, the header offers to group by them instead of by
+folder, as the desktop app's area view does: one colour per value, a page with
+several drawn as a pie, each value gathering its pages around a place of its
+own with a soft disc and its name behind them. A row of the legend highlights
+one value and dims the rest; Escape widens it again. The choice is remembered
+per wiki.

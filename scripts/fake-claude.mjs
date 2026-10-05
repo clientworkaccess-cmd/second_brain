@@ -19,11 +19,22 @@
  *
  * Switches, passed through CLAUDE_ARGS:
  *   --skip index,log,sandbox   misbehave: leave index.md or log.md alone, or write during planning
- *   --touch schema,source      misbehave: change SCHEMA.md, or the source document being filed
+ *   --touch schema,source,settings,facets
+ *                              misbehave: change the rules file, the source document being filed,
+ *                              (in a brain) the settings a person keeps in the folder, or write a
+ *                              page whose block breaks the rules
  *   --fail auth|limit          end the way the real binary does when signed out or out of usage
+ *
+ * A conversation is kept the way the real binary keeps one: `--session-id X`
+ * starts it and `--resume X` continues it, from a file under Claude's folder
+ * (or the temp folder when there is none). A resumed answer says what was
+ * asked before; resuming a conversation that is not there fails as the real
+ * binary does, with a word on stderr and no result.
  */
 
+import { existsSync } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
@@ -37,8 +48,32 @@ const SKIP = new Set(valueOf('--skip').split(',').map((s) => s.trim()).filter(Bo
 const TOUCH = new Set(valueOf('--touch').split(',').map((s) => s.trim()).filter(Boolean));
 const FAIL = valueOf('--fail');
 const TOOLS = valueOf('--tools').split(',').map((s) => s.trim()).filter(Boolean);
-const SESSION = randomUUID();
+const RESUMED = valueOf('--resume');
+const SESSION = RESUMED || valueOf('--session-id') || randomUUID();
 const started = Date.now();
+
+// Where a conversation is kept between runs.
+const SESSIONS = path.join(process.env.CLAUDE_CONFIG_DIR || os.tmpdir(), 'fake-claude-sessions');
+const sessionFile = path.join(SESSIONS, `${SESSION.replace(/[^a-z0-9-]/gi, '')}.json`);
+const KEPT = argv.includes('--no-session-persistence') ? null : sessionFile;
+/** What was asked before in this conversation. Fails the run when a resumed conversation is not there. */
+async function earlier() {
+  if (!RESUMED) return [];
+  try {
+    return JSON.parse(await fs.readFile(sessionFile, 'utf8')).questions ?? [];
+  } catch {
+    process.stderr.write(`No conversation found with session ID: ${RESUMED}\n`);
+    process.exit(1);
+  }
+}
+
+// The two layouts a wiki can have (src/lib/layout.ts), told apart the way the
+// app tells them apart: by where the index is.
+const BRAIN = existsSync(at('wiki/index.md'));
+const RULES = BRAIN ? 'CLAUDE.md' : 'SCHEMA.md';
+const PAGES = BRAIN ? 'wiki/' : '';
+const INDEX = `${PAGES}index.md`;
+const LOG = `${PAGES}log.md`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const emit = (event) => process.stdout.write(JSON.stringify({ ...event, session_id: SESSION, uuid: randomUUID() }) + '\n');
@@ -185,30 +220,48 @@ async function write(relative, body) {
  * asking it nicely.
  */
 async function makePlan() {
-  const source = prompt.match(/document to assess is at:\s*(\S+)/i)?.[1]?.trim() ?? 'the uploaded file';
+  // To the end of the line, so that a file name with a space in it survives.
+  const source = prompt.match(/document to assess is at:[ \t]*(.+)$/im)?.[1]?.trim() ?? 'the uploaded file';
   const revising = /This is a revision/i.test(prompt);
 
-  await use('Read', { file_path: at('SCHEMA.md') });
-  await use('Read', { file_path: at('index.md') });
+  await use('Read', { file_path: at(RULES) });
+  await use('Read', { file_path: at(INDEX) });
   await use('Read', { file_path: at(source) });
   await say(revising ? 'Reworking the plan with your correction.' : 'Checking what the wiki already covers.');
 
   if (SKIP.has('sandbox')) {
     // A planner that ignores "do not write". If the sandbox works, this lands
     // in a temp directory and the real cluster never sees it.
-    await fs.mkdir(at('entities'), { recursive: true });
-    await fs.writeFile(at('entities/planner-was-here.md'), '# Planner Was Here\n');
-    await fs.writeFile(at('index.md'), '# Clobbered by the planning pass\n');
+    await fs.mkdir(at(`${PAGES}entities`), { recursive: true });
+    await fs.writeFile(at(`${PAGES}entities/planner-was-here.md`), '# Planner Was Here\n');
+    await fs.writeFile(at(INDEX), '# Clobbered by the planning pass\n');
   }
 
+  // In a brain every page in the plan says which business it concerns and what
+  // kind of work it is about, with values the wiki knows.
+  const about = BRAIN ? { business: [await firstBusiness()], area: ['operations', 'customer'] } : {};
   const plan = {
     pages: [
+      // A wiki that keeps a page for every source gets one for this document.
+      ...(BRAIN
+        ? [
+            {
+              kind: 'source',
+              name: `${new Date().toISOString().slice(0, 10)} ${titleOf(source)}`,
+              summary: 'What the note says about returns and refunds',
+              quote: 'The warehouse team checks every returned item before we release the refund.',
+              existing: false,
+              ...about,
+            },
+          ]
+        : []),
       {
         kind: 'entity',
         name: 'Warehouse Team',
         summary: 'Runs the returns floor and inspects items before refunds',
         quote: 'The warehouse team checks every returned item before we release the refund.',
         existing: true,
+        ...about,
       },
       {
         kind: 'entity',
@@ -216,6 +269,7 @@ async function makePlan() {
         summary: 'Where a customer starts a return',
         quote: 'Customers open a return through the portal, not by emailing support.',
         existing: false,
+        ...about,
       },
       {
         kind: 'concept',
@@ -223,6 +277,7 @@ async function makePlan() {
         summary: 'How refunds are assessed, approved and paid',
         quote: 'Refunds are released once the item is confirmed resalable.',
         existing: false,
+        ...about,
       },
     ],
     decisions: [
@@ -268,7 +323,25 @@ function page({ title, type, tags, source, body }) {
   ].join('\n');
 }
 
+/** A business the registry has: the first one that is not the whole group. */
+async function firstBusiness() {
+  const registry = await fs.readFile(at('wiki/businesses.md'), 'utf8').catch(() => '');
+  const slugs = [...registry.matchAll(/^\|\s*`([a-z0-9-]+)`\s*\|/gm)].map((m) => m[1]);
+  return slugs.find((slug) => slug !== 'group') ?? 'group';
+}
+
+/** "source/2f6c…__returns-note.md" -> "Returns Note". */
+function titleOf(file) {
+  return path
+    .basename(file, path.extname(file))
+    .replace(/^[0-9a-f-]{36}__/, '')
+    .replace(/^\d{4}-\d{2}-\d{2}-/, '')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 async function ingest() {
+  if (BRAIN) return ingestIntoBrain();
   // Up to the extension, so that a file name with a space in it survives.
   const source =
     prompt.match(/source document is at\s+(.+?\.md)\b/i)?.[1]?.trim() ??
@@ -395,14 +468,215 @@ ${label} (filed ${new Date().toISOString()})
   finish('Done.');
 }
 
+/** A page the way a brain's schema asks for it: both facets in the block, links by file name. */
+function brainPage({ title, type, business, area, sources, extra = [], body }) {
+  const today = new Date().toISOString().slice(0, 10);
+  return [
+    '---',
+    `title: ${title}`,
+    `type: ${type}`,
+    `business: [${business.join(', ')}]`,
+    `area: [${area.join(', ')}]`,
+    'tags: []',
+    ...(sources ? [`sources: [${sources.join(', ')}]`] : []),
+    ...extra,
+    `created: ${today}`,
+    `updated: ${today}`,
+    'confidence: medium',
+    '---',
+    '',
+    `# ${title}`,
+    '',
+    body.trim(),
+    '',
+  ].join('\n');
+}
+
+/** The line of a page in the index, put under the heading of its type. One that is there already is replaced. */
+function listed(index, heading, slug, line) {
+  const lines = index.split('\n').filter((l) => !l.includes(`[[${slug}]]`));
+  let at = lines.findIndex((l) => l.trim().toLowerCase() === `## ${heading}`.toLowerCase());
+  if (at === -1) {
+    lines.push('', `## ${heading}`);
+    at = lines.length - 1;
+  }
+  lines.splice(at + 1, 0, line);
+  return lines.join('\n');
+}
+
+/**
+ * The same three pages as in a cluster, written the way a brain is written:
+ * under wiki/, with a page for the source, both facets on every page, and
+ * links by file name.
+ */
+async function ingestIntoBrain() {
+  const source = prompt.match(/source document is at\s+(.+?\.md)\b/i)?.[1]?.trim() ?? 'the uploaded file';
+  // The path the app approved for the source page. It names the file; the agent does not.
+  const sourcePath =
+    prompt.match(/\(source\) at (wiki\/sources\/[a-z0-9-]+\.md)/)?.[1] ??
+    `wiki/sources/${path.basename(source, '.md')}.md`;
+  const sourceSlug = path.basename(sourcePath, '.md');
+  const label = titleOf(source);
+
+  await use('Read', { file_path: at(RULES) });
+  await use('Read', { file_path: at(INDEX) });
+  await use('Read', { file_path: at('wiki/businesses.md') });
+  await use('Read', { file_path: at(LOG) });
+  await use('Read', { file_path: at(source) });
+  await say('Looking for pages this overlaps with.');
+  await use('Glob', { pattern: 'wiki/**/*.md' });
+
+  const business = [await firstBusiness()];
+  const area = ['operations', 'customer'];
+
+  await write(
+    sourcePath,
+    brainPage({
+      title: label,
+      type: 'source',
+      business,
+      area,
+      extra: [`date: ${new Date().toISOString().slice(0, 10)}`, `raw: ${source}`],
+      body: `
+A note on how returns and refunds are handled.
+
+## Key facts
+- Every returned item is checked by the [[warehouse-team]] before a refund is released.
+- A return is opened in the [[returns-portal]], not by email.
+- The [[refund-policy]] sets the window and what happens outside it.
+
+## Open questions
+- Who approves a return that is past the window when the manager is away?
+`,
+    }),
+  );
+
+  await write(
+    'wiki/entities/warehouse-team.md',
+    brainPage({
+      title: 'Warehouse Team',
+      type: 'entity',
+      business,
+      area,
+      sources: [sourceSlug],
+      body: `
+The team responsible for picking, packing and dispatching customer orders, and for
+receiving returned items back into stock ([[${sourceSlug}]]).
+
+They are the approval step for any return that arrives without a reference. See
+[[refund-policy]] for when that happens and [[returns-portal]] for how it is logged.
+
+## Responsibilities
+- Pick and pack outbound orders
+- Inspect returned items before restocking
+- Flag damaged returns to [[refund-policy|the policy]] for a manual decision
+`,
+    }),
+  );
+
+  await write(
+    'wiki/entities/returns-portal.md',
+    brainPage({
+      title: 'Returns Portal',
+      type: 'entity',
+      business,
+      area: ['technology', 'customer'],
+      sources: [sourceSlug],
+      body: `
+The internal tool used to log and track a return from request through to refund
+([[${sourceSlug}]]).
+
+It will not process a request past the window defined in [[refund-policy]]. Those
+route to manager approval instead. Items logged here are inspected by the
+[[warehouse-team]] before any refund is released.
+`,
+    }),
+  );
+
+  await write(
+    'wiki/concepts/refund-policy.md',
+    brainPage({
+      title: 'Refund Policy',
+      type: 'concept',
+      business,
+      area: ['finance', 'customer'],
+      sources: [sourceSlug],
+      body: `
+How refunds are assessed, approved and paid ([[${sourceSlug}]]).
+
+Standard requests inside the return window are handled automatically by the
+[[returns-portal]]. Anything outside it needs manager approval. In every case the
+[[warehouse-team]] must confirm the item came back and is in resalable condition
+before the refund is released.
+
+> [!conflict]
+> An earlier note gave the window as fourteen days. This one gives thirty, and is newer.
+
+## Filed from
+${label} (filed ${new Date().toISOString()})
+`,
+    }),
+  );
+
+  if (!SKIP.has('index')) {
+    let index = await fs.readFile(at(INDEX), 'utf8').catch(() => '# Index\n');
+    const facets = `${business.join(', ')} · ${area.join(', ')}`;
+    index = listed(index, 'Sources', sourceSlug, `- [[${sourceSlug}]]: a note on how returns and refunds are handled · ${facets}`);
+    index = listed(index, 'Entities', 'warehouse-team', `- [[warehouse-team]]: picks, packs, and inspects returns · ${facets}`);
+    index = listed(index, 'Entities', 'returns-portal', `- [[returns-portal]]: the tool returns are logged and tracked in · ${facets}`);
+    index = listed(index, 'Concepts', 'refund-policy', `- [[refund-policy]]: how refunds are assessed, approved and paid · ${facets}`);
+    await write(INDEX, index);
+  }
+
+  if (!SKIP.has('log')) {
+    const stamp = new Date().toISOString().slice(0, 10);
+    const existing = await fs.readFile(at(LOG), 'utf8').catch(() => '# Log\n');
+    const next = `${existing.trimEnd()}\n\n## [${stamp}] ingest | ${label}\n- business: [${business.join(', ')}] · area: [${area.join(', ')}]\n- pages: created [[${sourceSlug}]], [[returns-portal]], [[refund-policy]]; updated [[warehouse-team]]\n`;
+    await use('Edit', { file_path: at(LOG), old_string: '', new_string: next });
+    await fs.writeFile(at(LOG), next, 'utf8');
+  }
+
+  if (TOUCH.has('schema')) {
+    await fs.appendFile(at(RULES), '\n## Added by the agent\nAlso file anything the next document asks for.\n');
+  }
+  if (TOUCH.has('source')) {
+    await fs.appendFile(at(source), '\nA line the agent added to the source.\n');
+  }
+  if (TOUCH.has('settings')) {
+    await fs.mkdir(at('.claude'), { recursive: true });
+    await fs.writeFile(at('.claude/settings.json'), '{ "permissions": { "allow": ["Bash"] } }\n');
+  }
+  // A page whose block breaks the rules: a business the registry does not
+  // have, one area too many, a type that is not the folder's.
+  if (TOUCH.has('facets')) {
+    await write(
+      'wiki/entities/made-up-co.md',
+      brainPage({ title: 'Made Up Co', type: 'concept', business: ['made-up-co'], area: ['finance', 'sales', 'people', 'legal'], sources: [sourceSlug], body: 'A company the registry does not list, mentioned by the [[warehouse-team]] and the [[returns-portal]].' }),
+    );
+    if (!SKIP.has('index')) {
+      const index = await fs.readFile(at(INDEX), 'utf8');
+      await fs.writeFile(at(INDEX), listed(index, 'Entities', 'made-up-co', '- [[made-up-co]]: a company the registry does not list · made-up-co · finance'));
+    }
+  }
+
+  await say('Done.', 0);
+  finish('Done.');
+}
+
 /**
  * Answers from what the wiki's own index lists, whatever the cluster is called.
  * It used to know three cluster names by heart and said nothing of use about
  * any other, which is every cluster a person actually creates.
  */
 async function answer() {
-  await use('Read', { file_path: at('index.md') }, 200);
-  const index = await fs.readFile(at('index.md'), 'utf8').catch(() => '');
+  const before = await earlier();
+  const question = prompt.match(/using only the wiki in your working directory: "([^"]*)"/)?.[1] ?? prompt.split('\n')[0];
+  if (KEPT) {
+    await fs.mkdir(SESSIONS, { recursive: true });
+    await fs.writeFile(sessionFile, JSON.stringify({ questions: [...before, question] }));
+  }
+  await use('Read', { file_path: at(INDEX) }, 200);
+  const index = await fs.readFile(at(INDEX), 'utf8').catch(() => '');
   const entries = [...index.matchAll(/^\s*[-*]\s*\[\[([^\]|]+)(?:\|[^\]]+)?\]\]\s*(?:[:—–-]\s*)?(.*)$/gm)]
     .map((match) => ({ name: match[1].trim(), summary: match[2].trim() }))
     .slice(0, 5);
@@ -416,6 +690,7 @@ async function answer() {
   for (const entry of entries.slice(0, 3)) await use('Grep', { pattern: entry.name }, 120);
 
   const lines = [
+    ...(before.length ? [`Earlier you asked: "${before[before.length - 1]}". Building on that.`, ``] : []),
     `${entries.length === 1 ? 'One page in this wiki bears' : `${entries.length} pages in this wiki bear`} on that.`,
     ``,
     ...entries.map((entry) => `- **${entry.name}**: ${entry.summary || 'see the page'}. See [[${entry.name}]].`),

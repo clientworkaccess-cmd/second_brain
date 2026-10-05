@@ -33,6 +33,7 @@ process.env.CLAUDE_ARGS = 'scripts/fake-claude.mjs';
 const { createCluster } = await import(lib('clusters'));
 const jobs = await import(lib('jobs'));
 const { readPlan } = await import(lib('plans'));
+const { writeSettings } = await import(lib('settings'));
 const { STAGING_DIR, ORIGINALS_DIR, PLANS_DIR } = await import(lib('config'));
 
 const results = [];
@@ -84,7 +85,7 @@ const SOURCE = `---\nsource_url: x\ningested: 2026-09-16\nsha256: 0\n---\nThe wa
 const KNOWN_FLAGS = new Set([
   '-p', '--output-format', '--verbose', '--include-partial-messages', '--permission-mode', '--tools', '--allowedTools',
   '--disallowedTools', '--append-system-prompt-file', '--setting-sources', '--strict-mcp-config',
-  '--disable-slash-commands', '--no-session-persistence', '--model',
+  '--disable-slash-commands', '--no-session-persistence', '--model', '--session-id', '--resume',
 ]);
 const agentSrc = await fs.readFile(new URL('../src/lib/claude.ts', import.meta.url), 'utf8');
 // Code only. The comments are where the forbidden things are explained.
@@ -227,6 +228,49 @@ check('a CLAUDE.md inside the wiki is flagged',
   job6.status === 'attention' && !!job6.lint?.findings.some((f) => f.code === 'agent-config-file' && f.severity === 'error'),
   `${job6.status} findings=${job6.lint?.findings.map((f) => f.code).join(',') ?? 'none'}`);
 
+// ---------------------------------------------------------------------- 9
+// A wiki set to file at once: the plan is carried out as soon as it is made,
+// the job never rests, and what it wrote can be taken back out.
+await createCluster({ name: 'quick', scope: 'Returns and refunds', entities: '', questions: '' });
+await writeSettings('quick', { filing: 'automatic' });
+const seen = [];
+({ staged } = await stage('quick', 'quick.md', SOURCE, false));
+let job7 = await jobs.startPlanning({ cluster: 'quick', filename: 'quick.md', stagedPath: staged, originalPath: null });
+const stopWatching = jobs.subscribe(job7.id, (j) => seen.push(j.status));
+job7 = await settle(job7);
+stopWatching();
+check('a wiki set to file at once files without a decision', job7.status === 'done' && job7.automatic === true, `${job7.status}, automatic=${job7.automatic}`);
+check('and the job never rests in between', !seen.includes('awaiting_approval') && seen.includes('executing'), seen.join(' > '));
+check('the pages are there and the commit was made', (await pageCount('quick')) === 3 && !!job7.commit, `${await pageCount('quick')} pages, ${job7.commit}`);
+check('the plan is not left waiting', !(await ls(PLANS_DIR)).includes(`${job7.id}.json`));
+
+const undone = await jobs.undoFiling(job7.id);
+check('an undo takes the filing back out', undone.status === 'undone' && !!undone.undoCommit && (await pageCount('quick')) === 0, `${undone.status}, ${await pageCount('quick')} pages left`);
+check('the source it filed is gone too', !(await ls(path.join(root, 'quick', 'raw'))).length, (await ls(path.join(root, 'quick', 'raw'))).join(', '));
+const quickLog = execFileSync('git', ['log', '--format=%s'], { cwd: path.join(root, 'quick'), encoding: 'utf8' }).trim().split('\n');
+check('as a commit of its own', quickLog[0] === 'Undo the filing of quick.md' && quickLog[1].startsWith('Ingest quick.md'), quickLog.join(' | '));
+let twice = null;
+await jobs.undoFiling(job7.id).catch((err) => (twice = err));
+check('a filing is undone once', twice?.status === 409, twice?.message ?? 'it was undone again');
+
+// Two filings that wrote the same pages: the first cannot be undone on its own.
+// (The second may need attention: the stand-in rewrites an index that has not changed.)
+({ staged } = await stage('quick', 'first.md', SOURCE, false));
+let first = await settle(await jobs.startPlanning({ cluster: 'quick', filename: 'first.md', stagedPath: staged, originalPath: null }));
+({ staged } = await stage('quick', 'second.md', SOURCE, false));
+let second = await settle(await jobs.startPlanning({ cluster: 'quick', filename: 'second.md', stagedPath: staged, originalPath: null }));
+let tangled = null;
+await jobs.undoFiling(first.id).catch((err) => (tangled = err));
+check('a filing a later one built on cannot be undone on its own', first.status === 'done' && ['done', 'attention'].includes(second.status) && tangled?.status === 409 && /later filing/.test(tangled.message), `${first.status} (${first.error ?? ''}), ${second.status} (${second.error ?? ''}): ${tangled?.message ?? 'it was undone'}`);
+check('and nothing was changed by trying', (await pageCount('quick')) === 3 && execFileSync('git', ['status', '--porcelain'], { cwd: path.join(root, 'quick'), encoding: 'utf8' }).trim() === '');
+const backOut = await jobs.undoFiling(second.id);
+check('the later one can be', backOut.status === 'undone');
+
+const history = await jobs.listJobs('quick');
+check('a wiki lists its filings, newest first', history.map((j) => j.filename).join() === 'second.md,first.md,quick.md' && history.map((j) => j.status).join() === 'undone,done,undone', history.map((j) => `${j.filename}:${j.status}`).join(', '));
+check('and only its own', (await jobs.listJobs('ops')).every((j) => j.cluster === 'ops') && (await jobs.listJobs('ops')).length >= 5);
+
+// A wiki set to file at once while another filing holds it waits for a decision instead.
 await fs.rm(root, { recursive: true, force: true });
 
 const failed = results.filter((r) => !r.pass);
