@@ -3,6 +3,7 @@ import path from 'node:path';
 import { clusterPath } from './config';
 import { readIfPresent } from './files';
 import { indexFile, logFile, type Layout } from './layout';
+import { pageProblems } from './facets';
 import { fingerprint, isCatalogue, loadWiki, resolveLink, type Snapshot } from './wiki';
 
 /**
@@ -29,7 +30,8 @@ export interface Finding {
     | 'no-pages-written'
     | 'agent-config-file'
     | 'schema-changed'
-    | 'source-changed';
+    | 'source-changed'
+    | 'page-block';
   severity: Severity;
   detail: string;
 }
@@ -203,6 +205,18 @@ export async function lintAfterIngest(cluster: string, before: Before): Promise<
         severity: 'warning',
         detail: `"${entry.title}" was written but nothing links to it. It is unreachable from the rest of the record.`,
       });
+    }
+  }
+
+  // 5b. The block at the top of every page this filing touched says what the
+  //     rules ask: a type that matches the folder, facets the wiki knows, dates
+  //     that are dates. Reported, never refused.
+  let reported = 0;
+  for (const entry of all) {
+    if (!changed.has(entry.slug)) continue;
+    for (const problem of pageProblems(entry, layout, wiki.facets)) {
+      if (reported++ >= 20) break;
+      findings.push({ code: 'page-block', severity: 'warning', detail: `"${entry.title}" ${problem}.` });
     }
   }
 

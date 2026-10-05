@@ -2,8 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError, PLANS_DIR } from './config';
 import { ensureDashboardDirs, readIfPresent } from './clusters';
+import type { Facet } from './facets';
 import { inPages, layoutOf, type Layout } from './layout';
-import type { Snapshot } from './wiki';
+import { listOf, loadWiki, type Snapshot } from './wiki';
 
 /**
  * The proposed ingest — what the agent understood, before anything is written.
@@ -36,6 +37,8 @@ export interface PlanPage {
   quote: string;
   /** True when the wiki already has this page and the agent means to extend it. */
   existing: boolean;
+  /** What the page is about, by facet, where the wiki has facets: `{ business: ['harbour-bakery'], area: ['finance'] }`. */
+  facets: Record<string, string[]>;
 }
 
 export interface PlanDecision {
@@ -155,7 +158,7 @@ export async function readPlan(jobId: string): Promise<Plan | null> {
   }
   try {
     const cluster = isObject(parsed) ? str(parsed.cluster) : '';
-    return validatePlan(parsed, await layoutOf(cluster));
+    return validatePlan(parsed, await layoutOf(cluster), (await loadWiki(cluster)).facets);
   } catch {
     return null;
   }
@@ -177,7 +180,7 @@ export async function deletePlan(jobId: string): Promise<void> {
  * agent that omits the key rather than sending `[]` should not fail the ingest.
  * Strict about shape: anything that survives here is safe to act on.
  */
-export function validatePlan(input: unknown, layout: Layout): Plan {
+export function validatePlan(input: unknown, layout: Layout, facets: Facet[] = []): Plan {
   const o = asObject(input, 'plan');
   const kinds = layout.types.map((t) => t.type);
 
@@ -190,12 +193,23 @@ export function validatePlan(input: unknown, layout: Layout): Plan {
     const name = str(p.name).trim();
     if (!name) throw new HttpError(422, `pages[${i}].name is empty`);
     if (!slugFor(name)) throw new HttpError(422, `pages[${i}].name has no usable characters`);
+    // The facets as the agent gave them, in lower case. A value the wiki does
+    // not know is kept and shown: the reader decides, and the check after
+    // filing reports it if it is written.
+    // From the agent they come as keys of the page; from a plan on disk, under `facets`.
+    const given: Record<string, string[]> = {};
+    const stored = isObject(p.facets) ? p.facets : {};
+    for (const facet of facets) {
+      const value = p[facet.key] ?? stored[facet.key];
+      if (value !== undefined) given[facet.key] = listOf(value).map((v) => v.toLowerCase());
+    }
     return {
       kind,
       name,
       summary: str(p.summary).trim(),
       quote: str(p.quote).trim(),
       existing: p.existing === true,
+      facets: given,
     };
   });
 

@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { HttpError, clusterPath } from './config';
 import { readIfPresent } from './files';
+import { dayOf, facetsOf, pageProblems, type Facet } from './facets';
 import { propertiesOf, splitPage as splitBlock } from './frontmatter';
 import { INDEX, LOG, indexFile, isPageFolder, labelOf, layoutOf, logFile, type Layout, type PageType } from './layout';
 import { extractWikilinks, linkifyWikilinks, resolveLink, withoutLinks } from './wikilinks';
@@ -22,6 +23,8 @@ export interface PageRef {
   /** The folder. Empty for a page beside the index. */
   dir: string;
   title: string;
+  /** What the page says it is about, by facet: `{ business: ['harbour-bakery'], area: ['finance'] }`. */
+  facets: Record<string, string[]>;
 }
 
 export interface Page extends PageRef {
@@ -32,6 +35,8 @@ export interface Page extends PageRef {
   links: string[];
   /** The block at the top of the page, in the order it was written. Empty when there is none. */
   properties: [name: string, value: string][];
+  /** What is wrong with that block, in the reader's words. Empty when nothing is. */
+  problems: string[];
 }
 
 export interface Folder extends PageType {
@@ -41,6 +46,8 @@ export interface Folder extends PageType {
 /** The pages of a wiki, as the page tree shows them. */
 export interface Listing {
   layout: Layout['id'];
+  /** The facets pages carry, with the values the wiki allows. Empty in a cluster. */
+  facets: Facet[];
   folders: Folder[];
   /** The pages beside the index, the index and the log among them. */
   root: PageRef[];
@@ -76,6 +83,8 @@ export interface Wiki {
   entries: Map<string, Entry>;
   /** Everything a page is known by, in lower case: file name, title, aliases. */
   names: Map<string, string>;
+  /** The facets of the wiki, read from its rules and its registry. */
+  facets: Facet[];
 }
 
 // ------------------------------------------------------------------ reading
@@ -189,7 +198,10 @@ async function scan(cluster: string, previous: Wiki | null): Promise<Wiki> {
     await Promise.all(found.slice(at, at + AT_A_TIME).map(look));
   }
 
-  return { layout, folders, entries: inTreeOrder(entries, folders), names: namesOf(entries) };
+  const ordered = inTreeOrder(entries, folders);
+  const rules = await readIfPresent(clusterPath(cluster, layout.rulesFile));
+  const registry = ordered.get('businesses')?.body ?? null;
+  return { layout, folders, entries: ordered, names: namesOf(entries), facets: facetsOf(layout, rules, registry) };
 }
 
 async function list(dir: string): Promise<import('node:fs').Dirent[]> {
@@ -217,6 +229,7 @@ async function readEntry(item: { slug: string; dir: string; file: string }, mtim
     title: words(data.title) ?? headingOf(content) ?? deSlug(name),
     type: words(data.type)?.toLowerCase() ?? null,
     aliases: listOf(data.aliases ?? data.alias),
+    facets: facetsIn(data),
     data,
     body: content.trim(),
     links: extractWikilinks(raw),
@@ -263,11 +276,12 @@ export async function listPages(cluster: string): Promise<Listing> {
 
 export function listingOf(wiki: Wiki): Listing {
   const all = [...wiki.entries.values()];
-  const ref = ({ slug, dir, title }: Entry): PageRef => ({ slug, dir, title });
+  const ref = ({ slug, dir, title, facets }: Entry): PageRef => ({ slug, dir, title, facets });
   const folders = wiki.folders.map((folder) => ({ ...folder, pages: all.filter((e) => e.dir === folder.dir).map(ref) }));
   const root = all.filter((e) => e.dir === '').map(ref);
   return {
     layout: wiki.layout.id,
+    facets: wiki.facets,
     folders,
     root,
     total: folders.reduce((n, folder) => n + folder.pages.length, 0) + root.filter((p) => !isCatalogue(p.slug)).length,
@@ -285,11 +299,11 @@ export async function readPage(cluster: string, slug: string): Promise<Page> {
     throw new HttpError(400, 'Malformed page slug');
   }
   // Only what the listing found can be opened, so a slug cannot name a file
-  // that is not a page.
-  // A page that is not there may have been written a moment ago: look again
-  // before saying so.
-  const entry =
-    (await loadWiki(cluster)).entries.get(slug) ?? (await loadWiki(cluster, { fresh: true })).entries.get(slug);
+  // that is not a page. A page that is not there may have been written a
+  // moment ago: look again before saying so.
+  let wiki = await loadWiki(cluster);
+  if (!wiki.entries.has(slug)) wiki = await loadWiki(cluster, { fresh: true });
+  const entry = wiki.entries.get(slug);
   if (!entry) throw new HttpError(404, `No page at ${slug}`);
 
   return {
@@ -297,10 +311,12 @@ export async function readPage(cluster: string, slug: string): Promise<Page> {
     dir: entry.dir,
     title: entry.title,
     type: entry.type,
+    facets: entry.facets,
     body: entry.body,
     updatedAt: dayOf(entry.data.updated) ?? new Date(entry.mtimeMs).toISOString(),
     links: entry.links,
     properties: propertiesOf(entry.data),
+    problems: pageProblems(entry, wiki.layout, wiki.facets),
   };
 }
 
@@ -473,11 +489,13 @@ export function listOf(value: unknown): string[] {
   return text ? text.split(',').map((item) => item.trim()).filter(Boolean) : [];
 }
 
-/** YAML reads 2026-09-28 as a date. Either way, the day. */
-function dayOf(value: unknown): string | null {
-  if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value.toISOString().slice(0, 10);
-  const text = words(value);
-  return text && /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : null;
+/** The facet values a block gives, by key. Only the keys a wiki uses are read (see lib/facets.ts); the rest is properties. */
+function facetsIn(data: Record<string, unknown>): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const key of ['business', 'area']) {
+    if (key in data) out[key] = listOf(data[key]).map((value) => value.toLowerCase());
+  }
+  return out;
 }
 
 // The link syntax itself needs no filesystem, and the chat renders answers in

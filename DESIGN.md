@@ -66,9 +66,16 @@ before the first paint.
 - **Left:** the page tree and the search. On the front page, the clusters. The
   folders are the wiki's own; the pages beside the index come after them, the
   index first. A wiki of more than sixty pages opens with its folders closed,
-  and opening a page opens its folder.
+  and opening a page opens its folder. Where the wiki has facets, a drop-down
+  per facet above the tree narrows the tree and the search to one value; the
+  choice stays for as long as the browser tab is.
 - **Centre:** a tab for every page that is open, kept for as long as the browser tab is.
 - **Right:** backlinks, outline and links for a page. Activity and a summary for a cluster.
+- **A page's properties:** the block at its top, as the desktop app shows it. A
+  facet's values are chips that lead to every page sharing them. What the rules
+  would change about the block is said under it, in the warning colour.
+- **Callouts:** `> [!conflict]` and the other kinds are drawn as the desktop
+  app draws them, a coloured bar and a title. Conflict is the warning colour.
 - **Status bar:** the cluster and its size on the left, the page's own facts on the right.
 - Under 900px wide the sidebars lie over the page and open from the tab bar.
 
@@ -93,6 +100,12 @@ desktop app's rule, so the same wiki gets the same kind of colours in both.
 A link to a page that does not exist is drawn faint and dashed. Past 120
 pages only the thirty best-connected keep their labels, and whatever is under
 the pointer with its neighbours.
+
+Where the wiki has facets, the header offers to group by them instead of by
+folder, as the desktop app's area view does: one colour per value, a page with
+several drawn as a pie, each value pulling its pages toward a place of its own,
+a link across values holding less. A row of the legend narrows the graph to
+one value; Escape widens it again. The choice is remembered per wiki.
 
 The desktop app draws with WebGL, because a vault reaches thousands of links.
 This app draws SVG, because a cluster reaches tens to low hundreds of pages.

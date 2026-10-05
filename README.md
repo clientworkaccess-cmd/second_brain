@@ -8,10 +8,10 @@ Next.js, one process. The agent is Claude Code, started as a child process and
 signed in with the team's Claude subscription. There is no API key anywhere.
 
 **Where this stands.** Stage 1 of 3, everything the older dashboard did on
-Claude Code instead of Hermes, is done. Of Stage 2, the real wiki's structure,
-the layout is in: a wiki kept by hand with Claude Code can be brought in as it
-is (see "Two layouts"). Its facets, and the Second Brain editor and graph
-(Stage 3), are not in here yet.
+Claude Code instead of Hermes, is done. Stage 2, the real wiki's structure, is
+in: a wiki kept by hand with Claude Code can be brought in as it is, and its
+facets are read, checked and used (see "Two layouts"). The Second Brain editor
+and graph (Stage 3) are not in here yet.
 
 It looks and is laid out like the Second Brain desktop app, on purpose:
 [`DESIGN.md`](DESIGN.md). What the app assumes about the Claude binary, and what
@@ -60,6 +60,7 @@ npm run build && npm run serve
 | `npm run check:lint` | The check that runs after every filing |
 | `npm run check:pages` | Reading a page does nothing but read it, whatever is written at its top |
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the command line, and that 350 pages are read once |
+| `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
 | `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, redirects, one document from upload to filed page, chat, a signed-out agent. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
@@ -202,9 +203,22 @@ app reads the folders. Two layouts are recognised, from what is in the folder.
 | The rules the agent is given | `prompts/llm-wiki.md` | `prompts/brain-wiki.md`, which defers to the folder's own `CLAUDE.md` |
 | What the agent may write | anything in the folder but the rules and the sources | `wiki/` and nothing else |
 | Committed after a filing | the folder | `wiki/`, `raw/` and `CLAUDE.md`, and nothing else in the folder |
+| Facets | none | `business` and `area` on every page: the businesses from `wiki/businesses.md`, the areas from the table in `CLAUDE.md` |
 
-A folder of pages that neither layout names is shown all the same. Everything
-that knows one layout from the other is in `src/lib/layout.ts`.
+Both are made from the "New cluster" interview. A folder of pages that neither
+layout names is shown all the same. Everything that knows one layout from the
+other is in `src/lib/layout.ts`.
+
+**Facets.** In a brain a folder says what kind of page it holds and nothing
+else; which business a page concerns and what kind of work it is about are in
+the block at its top. The app reads the values a page may carry from the wiki
+itself, so a business added to the registry page is known at once. The page
+tree and the search filter by them, the graph groups by them, a page shows them
+as links to every page that shares them, and a plan says what each page it
+proposes is about. After every filing the check reports a page whose block
+breaks the rules: a business the registry does not have, an area too many, a
+type that is not the folder's, a date that is not a date. Reported, never
+refused: the pages stay as the agent wrote them, and a person decides.
 
 **Bringing a brain in.** Copy the folder into `WIKI_ROOT` under a name in
 lower case, digits and hyphens (`northwind-brain`, not `Northwind-Brain`), owned by
