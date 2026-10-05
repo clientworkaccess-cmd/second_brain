@@ -272,6 +272,33 @@ try {
   const again = await fetch(`${base}/api/pipeline/execute`, withCookie(json({ jobId }), cookie));
   check('a plan cannot be approved twice', again.status >= 400 && again.status < 500, String(again.status));
 
+  // ------------------------------------------------------------ the editor
+  const put = (body) => fetch(`${base}/api/page`, withCookie({ method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }, cookie));
+  const opened = await (await get('/api/page?cluster=operations&slug=entities/warehouse-team', { cookie })).json();
+  check('a page can be read for editing', opened.exists === true && opened.text.includes('# Warehouse Team') && /^\d+:\d+$/.test(opened.version), opened.version);
+  const edited = await put({ cluster: 'operations', slug: 'entities/warehouse-team', text: `${opened.text}\nA line typed in the editor.\n`, version: opened.version });
+  const editedBody = await edited.json();
+  check('a save with the version that was read is taken', edited.status === 200 && /^\d+:\d+$/.test(editedBody.version) && editedBody.version !== opened.version, `${edited.status} ${JSON.stringify(editedBody).slice(0, 80)}`);
+  const stale = await put({ cluster: 'operations', slug: 'entities/warehouse-team', text: `${opened.text}\nWritten from an old copy.\n`, version: opened.version });
+  const staleBody = await stale.json();
+  check('a save from a copy that moved on is refused, with the page as it is', stale.status === 409 && staleBody.text.includes('A line typed in the editor.') && staleBody.version === editedBody.version, String(stale.status));
+  const forced = await put({ cluster: 'operations', slug: 'entities/warehouse-team', text: `${opened.text}\nForced over.\n`, version: opened.version, force: true, commit: true });
+  const forcedBody = await forced.json();
+  check('unless it is forced, and then the restore point is made', forced.status === 200 && typeof forcedBody.commit === 'string' && forcedBody.commit.length >= 7, `${forced.status} ${JSON.stringify(forcedBody).slice(0, 80)}`);
+  const found2 = await (await get('/api/search?cluster=operations&q=forced%20over', { cookie })).json();
+  check('what was saved is read at once', found2.hits?.length === 1 && found2.hits[0].slug === 'entities/warehouse-team', JSON.stringify(found2.hits?.map((h) => h.slug)));
+  const made = await put({ cluster: 'operations', slug: 'entities/courier-contract', text: '---\ntitle: Courier Contract\ntype: entity\n---\n\n# Courier Contract\n' });
+  check('a new page is made on its first save', made.status === 201 && (await fs.readdir(path.join(app.wiki, 'operations', 'entities'))).includes('courier-contract.md'), String(made.status));
+  const refused = [];
+  for (const slug of ['../SCHEMA', 'raw/note', 'CLAUDE', 'entities/../../escape', 'entities/.hidden', 'source/x']) {
+    const res = await put({ cluster: 'operations', slug, text: 'x' });
+    if (res.status < 400) refused.push(`${slug}: ${res.status}`);
+  }
+  check('nothing but a page can be written this way', refused.length === 0, refused.join(', '));
+  check('the rules are as they were', (await fs.readFile(path.join(app.wiki, 'operations', 'SCHEMA.md'), 'utf8')).length > 100 && !(await fs.readdir(path.join(app.wiki, 'operations'))).includes('CLAUDE.md'));
+  const anon = await fetch(`${base}/api/page?cluster=operations&slug=entities/warehouse-team`);
+  check('the editor needs a session', anon.status === 401, String(anon.status));
+
   // ---------------------------------------------------------------- chat
   const chat = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'What is this cluster about?' }), cookie));
   const answer = chat.list.filter((e) => e.name === 'token').map((e) => e.data.text).join('');

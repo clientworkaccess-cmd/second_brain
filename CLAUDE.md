@@ -96,6 +96,18 @@ the jobs. It looks at the folders again on every call, which is cheap, and
 reads only files whose size or time changed. Anything that compares before
 with after asks with `{ fresh: true }`.
 
+## The editor
+
+`src/editor/` is the desktop app's editor (`src/renderer/src/editor/` there).
+`livePreview.ts`, `wikilinkDecorations.ts`, `frontmatterParser.ts`,
+`theme.ts` and `format.ts` are that app's files as they are, in its style,
+and are to be kept in step with it rather than edited here. `extensions.ts`,
+`links.ts` and `wikilinkCompletion.ts` are this app's, because the editor
+here is handed its link targets and hooks by the page instead of reading a
+store. `src/lib/pages.ts` is the one place the app writes a page: a `.md`
+file among the pages and nothing else, refused when the file moved on since
+it was read.
+
 ## Where things are
 
 `src/lib/claude.ts` builds the command and runs it, by layout, and for a

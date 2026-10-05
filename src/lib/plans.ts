@@ -5,6 +5,7 @@ import { ensureDashboardDirs, readIfPresent } from './clusters';
 import type { Facet } from './facets';
 import { inPages, layoutOf, type Layout } from './layout';
 import { listOf, loadWiki, type Snapshot } from './wiki';
+import { slugOfTitle } from './wikilinks';
 
 /**
  * The proposed ingest — what the agent understood, before anything is written.
@@ -117,11 +118,7 @@ export function dirFor(kind: ItemKind, layout: Layout): string {
  * also means no separators, no dots, and nothing that could climb a directory.
  */
 export function slugFor(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
+  return slugOfTitle(name);
 }
 
 /** The path this page will be written to, from the wiki's folder. */
