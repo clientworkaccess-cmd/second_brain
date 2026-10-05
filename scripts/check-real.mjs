@@ -79,9 +79,9 @@ await createCluster({ name: 'ops', scope: 'Returns and refunds', entities: '', q
 const cluster = path.join(process.env.WIKI_ROOT, 'ops');
 
 /** Exactly what the app would run, with everything it printed. */
-function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER) {
+function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER, conversation = null) {
   return new Promise((resolve) => {
-    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout);
+    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout, conversation);
     const child = spawn(cmd, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     let err = '';
@@ -142,6 +142,13 @@ for (const [layout, mode] of [CLUSTER, BRAIN].flatMap((l) => ['plan', 'execute',
   check(`${name}: ends with a result`, !!r.result, `exit ${r.code}`);
   if (r.result?.ok) signedIn = true;
   else if (r.result) note(`${name}: the run itself`, `${r.result.error}: ${r.result.errorDetail ?? ''}`.slice(0, 160));
+}
+// A question that is part of a conversation: the session is kept under the app's id.
+{
+  const id = crypto.randomUUID();
+  const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, { id, resume: false });
+  check('chat, in a conversation: every flag and rule is accepted', !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
+  check('chat, in a conversation: the session has the id the app gave it', r.init?.sessionId === id, r.init?.sessionId ?? '');
 }
 console.log(`\nClaude Code ${version ?? 'of unknown version'}`);
 

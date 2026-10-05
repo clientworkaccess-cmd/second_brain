@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { clusterPath } from './config';
+import { HttpError, clusterPath } from './config';
 import { exists } from './files';
 import type { Layout } from './layout';
 
@@ -93,4 +93,39 @@ export async function commitCluster(cluster: string, message: string, layout: La
     console.error(`[git] commit failed for ${cluster} — this ingest has no rollback point`, err);
     return null;
   }
+}
+
+/**
+ * Take a filing back out: a new commit that undoes the one given. Returns the
+ * short sha of that commit.
+ *
+ * Throws, with a message a reader can act on, when the revert does not apply
+ * cleanly, which is what happens when a later filing changed the same pages.
+ * Nothing is left half done: the revert is abandoned and the wiki is as it was.
+ */
+export async function revertCommit(cluster: string, sha: string, message: string, layout: Layout): Promise<string> {
+  const cwd = clusterPath(cluster);
+  if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw new HttpError(400, 'That is not a commit');
+  if (!(await ensureRepo(cluster, layout))) throw new HttpError(409, 'This wiki has no repository, so there is nothing to revert');
+
+  // Anything a person left uncommitted in the folder would be swept up by
+  // the revert's commit. Stage what the layout says is the wiki first, as a
+  // filing does, so that the revert starts from a clean index.
+  if (await stage(cwd, layout)) {
+    await exec('git', [...IDENTITY, 'commit', '-m', 'Changes made outside the app, before an undo'], { cwd });
+  }
+
+  try {
+    await exec('git', ['revert', '--no-commit', sha], { cwd });
+    await exec('git', [...IDENTITY, 'commit', '-m', message], { cwd });
+  } catch (err) {
+    await exec('git', ['revert', '--abort'], { cwd }).catch(() => {});
+    const said = err instanceof Error ? err.message : String(err);
+    if (/conflict/i.test(said)) {
+      throw new HttpError(409, 'A later filing changed the same pages, so this one cannot be undone on its own. Undo the later one first.');
+    }
+    throw new HttpError(500, `The revert did not apply: ${said.split('\n').find((line) => line.trim())?.slice(0, 200) ?? 'git failed'}`);
+  }
+  const { stdout } = await exec('git', ['rev-parse', '--short', 'HEAD'], { cwd });
+  return stdout.trim();
 }

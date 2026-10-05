@@ -98,9 +98,11 @@ with after asks with `{ fresh: true }`.
 
 ## Where things are
 
-`src/lib/claude.ts` builds the command and runs it, by layout; `claude-stream.ts` is the
-pure parser. `jobs.ts` is the plan, approve, file pipeline with the per-cluster
-lock; `sandbox.ts` makes the throwaway copy a plan runs in; `lint.ts` is the
+`src/lib/claude.ts` builds the command and runs it, by layout, and for a
+question in a conversation with the session it keeps; `claude-stream.ts` is
+the pure parser. `settings.ts` is what a person decided per wiki, in
+`.dashboard/settings/`, today whether a filing waits for approval. `jobs.ts` is the plan, approve, file pipeline with the per-cluster
+lock, the automatic path when a wiki files at once, and the undo; `sandbox.ts` makes the throwaway copy a plan runs in; `lint.ts` is the
 check after filing; `git.ts` commits the cluster. `gate.ts`, `session.ts`,
 `auth.ts` are sign-in. `prompts/llm-wiki.md` and `prompts/brain-wiki.md` are
 what the agent is told about a cluster and about a brain. `scripts/fake-claude.mjs` is the stand-in; `scripts/fixtures/` holds

@@ -101,6 +101,8 @@ export const STAGING_DIR = path.join(DASHBOARD_DIR, 'staging');
 export const PLANS_DIR = path.join(DASHBOARD_DIR, 'plans');
 export const ORIGINALS_DIR = path.join(DASHBOARD_DIR, 'originals');
 export const TRANSCRIPTS_DIR = path.join(DASHBOARD_DIR, 'transcripts');
+/** What a person decided about each wiki, such as whether a filing waits for approval. See lib/settings.ts. */
+export const SETTINGS_DIR = path.join(DASHBOARD_DIR, 'settings');
 
 /** Hard ceiling on a single ingest before we give up and mark the job failed. */
 export const INGEST_TIMEOUT_MS = Number(process.env.INGEST_TIMEOUT_MS ?? 15 * 60 * 1000);
