@@ -61,6 +61,54 @@ export function splitPage(raw: string): SplitPage {
   }
 }
 
+/** How much of a block is printed: more than any real one holds. */
+const MAX_PROPERTIES = 100;
+const MAX_VALUES = 2000;
+const MAX_TEXT = 2000;
+
+/**
+ * What a block holds, as text for the reader, in the order it was written.
+ *
+ * Within limits. YAML lets one value stand for another, so a block of a few
+ * lines can describe a value that is millions of items long once written out.
+ * Reading such a block costs nothing. Printing it without a limit would.
+ */
+export function propertiesOf(data: Record<string, unknown>): [name: string, value: string][] {
+  const budget = { left: MAX_VALUES };
+  return Object.entries(data)
+    .slice(0, MAX_PROPERTIES)
+    .map(([name, value]) => [name, shown(value, budget, 0).slice(0, MAX_TEXT)]);
+}
+
+function shown(value: unknown, budget: { left: number }, depth: number): string {
+  if (budget.left-- <= 0 || depth > 6) return '…';
+  if (value === null || value === undefined) return '';
+  // YAML reads 2026-09-28 as a date, and a date prints with a time and a zone.
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? '' : value.toISOString().slice(0, 10);
+  if (Array.isArray(value)) return within(value, budget, (item) => shown(item, budget, depth + 1));
+  if (isRecord(value)) {
+    const inside = within(Object.entries(value), budget, ([key, item]) => `${key}: ${shown(item, budget, depth + 1)}`);
+    return `{ ${inside} }`;
+  }
+  return String(value).slice(0, MAX_TEXT);
+}
+
+/** The items joined with commas, stopping where the budget or the length runs out. */
+function within<T>(items: T[], budget: { left: number }, print: (item: T) => string): string {
+  const parts: string[] = [];
+  let length = 0;
+  for (const item of items) {
+    if (budget.left <= 0 || length > MAX_TEXT) {
+      parts.push('…');
+      break;
+    }
+    const text = print(item);
+    parts.push(text);
+    length += text.length + 2;
+  }
+  return parts.join(', ');
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

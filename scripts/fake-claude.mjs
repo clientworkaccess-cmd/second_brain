@@ -395,52 +395,33 @@ ${label} (filed ${new Date().toISOString()})
   finish('Done.');
 }
 
+/**
+ * Answers from what the wiki's own index lists, whatever the cluster is called.
+ * It used to know three cluster names by heart and said nothing of use about
+ * any other, which is every cluster a person actually creates.
+ */
 async function answer() {
-  const clusterName = path.basename(WIKI_PATH).toLowerCase();
+  await use('Read', { file_path: at('index.md') }, 200);
+  const index = await fs.readFile(at('index.md'), 'utf8').catch(() => '');
+  const entries = [...index.matchAll(/^\s*[-*]\s*\[\[([^\]|]+)(?:\|[^\]]+)?\]\]\s*(?:[:—–-]\s*)?(.*)$/gm)]
+    .map((match) => ({ name: match[1].trim(), summary: match[2].trim() }))
+    .slice(0, 5);
 
-  let chunks;
-  if (clusterName === 'operations') {
-    chunks = [
-      `The **Operations** cluster covers how customer orders are fulfilled, inspected, and returned.`,
-      ``,
-      `Key operational areas:`,
-      `- **Warehouse Management**: Order picking, packing, dispatching, and return item inspections managed by the [[Warehouse Team]].`,
-      `- **Returns & Exchanges**: Tracking and processing return requests automatically via the [[Returns Portal]].`,
-      `- **Policies & Escalations**: Managing window limits, damaged items, and manager overrides per [[Refund Policy]].`,
-      ``,
-      `SOURCES: [[Warehouse Team]], [[Returns Portal]], [[Refund Policy]]`,
-    ];
-  } else if (clusterName === 'finance') {
-    chunks = [
-      `The **Finance** cluster covers financial planning, departmental budgeting, expense tracking, and audit compliance.`,
-      ``,
-      `Key financial areas:`,
-      `- **Financial Governance**: Budget distributions, tax compliance, and accounting supervised by the [[Finance Team]].`,
-      `- **Audit & Tracking**: Recording transaction ledgers and financial variance reports inside the [[Audit Portal]].`,
-      `- **Budgeting Framework**: Guidelines for annual financial planning and expense approvals in [[Budgeting Guidelines]].`,
-      ``,
-      `SOURCES: [[Finance Team]], [[Audit Portal]], [[Budgeting Guidelines]]`,
-    ];
-  } else if (clusterName === 'marketing') {
-    chunks = [
-      `The **Marketing** cluster covers brand positioning, acquisition campaign strategy, media asset management, and growth analytics.`,
-      ``,
-      `Key marketing areas:`,
-      `- **Acquisition & Growth**: Paid media campaigns, SEO, and user growth strategy driven by the [[Growth Team]].`,
-      `- **Brand Collateral**: Storing digital assets, design templates, and copy guidelines within the [[Content Hub]].`,
-      `- **Campaign Strategy**: Blueprint for product launches, promotional pushes, and retargeting in [[Campaign Strategy]].`,
-      ``,
-      `SOURCES: [[Growth Team]], [[Content Hub]], [[Campaign Strategy]]`,
-    ];
-  } else {
-    chunks = [
-      `This cluster covers information, entities, and concepts configured for ${clusterName}.`,
-      ``,
-      `SOURCES: [[Index]]`,
-    ];
+  if (entries.length === 0) {
+    const text = await stream(['The wiki does not cover this yet. ', 'Nothing has been filed in this cluster.\n']);
+    finish(text.trim());
+    return;
   }
 
-  await use('Read', { file_path: at('index.md') }, 200);
-  const text = await stream(chunks.map((line) => `${line}\n`));
+  for (const entry of entries.slice(0, 3)) await use('Grep', { pattern: entry.name }, 120);
+
+  const lines = [
+    `${entries.length === 1 ? 'One page in this wiki bears' : `${entries.length} pages in this wiki bear`} on that.`,
+    ``,
+    ...entries.map((entry) => `- **${entry.name}**: ${entry.summary || 'see the page'}. See [[${entry.name}]].`),
+    ``,
+    `SOURCES: ${entries.map((entry) => `[[${entry.name}]]`).join(', ')}`,
+  ];
+  const text = await stream(lines.map((line) => `${line}\n`));
   finish(text.trim());
 }

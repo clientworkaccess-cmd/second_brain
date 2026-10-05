@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { SendHorizonal, MessageSquare, Square } from 'lucide-react';
-import { Button, Card, EmptyState, Skeleton } from '@/components/ui';
+import { MarkdownView } from '@/components/MarkdownView';
+import { Button, EmptyState, Skeleton } from '@/components/ui';
 
 interface Turn {
   question: string;
@@ -22,15 +23,25 @@ interface Turn {
  * has to go up in a POST body and EventSource is GET-only. The wire format is
  * still SSE, so it inherits the same proxy behaviour.
  *
- * The answer is rendered as it arrives: piece by piece when the agent streams
- * it, as one block when it does not.
+ * The answer is rendered as it arrives, in the reading view's own typography,
+ * and the pages it names become links.
  */
-export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: boolean }) {
+export function ChatPanel({
+  cluster,
+  hasPages,
+  titles,
+}: {
+  cluster: string;
+  hasPages: boolean;
+  /** title -> slug, as pairs. A Map does not survive the trip from the server on every version of React. */
+  titles: [string, string][];
+}) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const known = useMemo(() => new Map(titles), [titles]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -111,71 +122,87 @@ export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: bo
 
   if (!hasPages) {
     return (
-      <EmptyState
-        icon={MessageSquare}
-        title="Nothing to ask yet"
-        body="Once a document has been filed into this cluster, you can ask questions about it and get answers with the pages they came from."
-        action={
-          <Link href={`/c/${cluster}`} className="text-lavender underline underline-offset-4 decoration-lavender/40 hover:decoration-lavender">
-            Add a document first
-          </Link>
-        }
-      />
+      <div className="center-scroll">
+        <div className="content">
+          <EmptyState
+            icon={MessageSquare}
+            title="Nothing to ask yet"
+            body="Once a document has been filed into this cluster, you can ask questions about it and get answers with the pages they came from."
+            action={
+              <Link href={`/c/${cluster}`} className="text-link hover:underline">
+                Add a document first
+              </Link>
+            }
+          />
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="flex min-h-[60dvh] flex-col">
-      <div className="flex-1 space-y-6">
-        {turns.length === 0 && (
-          <p className="max-w-prose text-body text-medium">
-            Ask anything this cluster covers. Answers come with the pages they were drawn from,
-            so you can read the source yourself rather than take the answer on trust.
-          </p>
-        )}
+    <div className="chat">
+      <div className="chat-scroll">
+        <div className="content space-y-7">
+          {turns.length === 0 && (
+            <p className="max-w-prose text-body text-muted">
+              Ask anything this cluster covers. Answers come with the pages they were drawn from, so
+              you can read the source yourself rather than take the answer on trust.
+            </p>
+          )}
 
-        {turns.map((turn, i) => (
-          <div key={i} className="space-y-3">
-            <p className="text-bright font-medium text-body">{turn.question}</p>
+          {turns.map((turn, i) => (
+            <section key={i}>
+              <h2 className="text-body font-semibold text-ink">{turn.question}</h2>
 
-            {turn.error ? (
-              <p className="text-body-sm text-error">{turn.error}</p>
-            ) : turn.answer ? (
-              <div className="md whitespace-pre-wrap">{stripSources(turn.answer)}</div>
-            ) : (
-              <div className="space-y-2">
-                <Skeleton className="h-3 w-5/6" />
-                <Skeleton className="h-3 w-4/6" />
-                <Skeleton className="h-3 w-3/6" />
+              <div className="mt-2">
+                {turn.error ? (
+                  <p role="alert" className="text-body text-danger">
+                    {turn.error}
+                  </p>
+                ) : turn.answer ? (
+                  <div className="preview compact">
+                    <MarkdownView source={stripSources(turn.answer)} cluster={cluster} titles={known} />
+                  </div>
+                ) : (
+                  <div className="space-y-2" aria-label="Waiting for the answer">
+                    <Skeleton className="h-3 w-5/6" />
+                    <Skeleton className="h-3 w-4/6" />
+                    <Skeleton className="h-3 w-3/6" />
+                  </div>
+                )}
               </div>
-            )}
 
-            {!turn.done && !turn.error && turn.activity && (
-              <p className="text-caption text-muted" aria-live="polite">
-                {turn.activity}…
-              </p>
-            )}
+              {!turn.done && !turn.error && turn.activity && (
+                <p className="mt-2 text-small text-muted" aria-live="polite">
+                  {turn.activity}…
+                </p>
+              )}
 
-            {turn.sources.length > 0 && (
-              <div className="flex flex-wrap items-center gap-2 pt-1">
-                <span className="text-caption text-muted">From</span>
-                {turn.sources.map((source) => (
-                  <span
-                    key={source}
-                    className="rounded-full border border-lavender/30 bg-tag-bg px-2.5 py-0.5 text-caption font-medium text-lavender"
-                  >
-                    {source}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-        <div ref={bottomRef} />
+              {turn.sources.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span className="text-small text-muted">From</span>
+                  {turn.sources.map((source) => {
+                    const slug = known.get(source.toLowerCase());
+                    return slug ? (
+                      <Link key={source} href={`/c/${cluster}/${slug}`} className="tag">
+                        {source}
+                      </Link>
+                    ) : (
+                      <span key={source} className="tag">
+                        {source}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          ))}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      <Card className="sticky bottom-4 mt-8 p-2 border border-graphite bg-surface shadow-subtle">
-        <div className="flex items-end gap-2">
+      <div className="chat-composer">
+        <div className="chat-composer-inner">
           <textarea
             rows={1}
             value={question}
@@ -187,20 +214,21 @@ export function ChatPanel({ cluster, hasPages }: { cluster: string; hasPages: bo
               }
             }}
             placeholder={`Ask something the ${cluster} cluster covers…`}
-            className="max-h-40 flex-1 resize-none bg-transparent px-3 py-2.5 text-body text-bright placeholder:text-muted/60 focus:outline-none"
+            aria-label="Your question"
           />
           {busy ? (
             <Button variant="ghost" onClick={() => abortRef.current?.abort()} aria-label="Stop">
-              <Square className="h-4 w-4" strokeWidth={2} />
+              <Square size={14} />
               Stop
             </Button>
           ) : (
             <Button onClick={ask} disabled={!question.trim()} aria-label="Ask">
-              <SendHorizonal className="h-4 w-4" strokeWidth={2} />
+              <SendHorizonal size={15} />
+              Ask
             </Button>
           )}
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

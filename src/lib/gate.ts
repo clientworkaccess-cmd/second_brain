@@ -8,7 +8,8 @@
 
 export type Gate = 'allow' | 'to-login' | 'to-home' | 'unauthorized';
 
-const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/favicon.ico']);
+/** `/icon.png` is the app's mark, which the browser asks for on the login page too. */
+const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/favicon.ico', '/icon.png']);
 
 /**
  * Next's own build output. Hashed file names, no user data.

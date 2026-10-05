@@ -21,7 +21,7 @@ process.env.WIKI_ROOT = wikiRoot;
 
 await compileLib();
 const lib = (name) => pathToFileURL(path.join(OUT_DIR, `${name}.js`)).href;
-const { splitPage } = await import(lib('frontmatter'));
+const { splitPage, propertiesOf } = await import(lib('frontmatter'));
 const { listPages, readPage, titleIndex } = await import(lib('wiki'));
 
 const results = [];
@@ -93,6 +93,32 @@ try {
   check('a block past the size limit is not read', Object.keys(splitPage(`---\nnote: ${'x'.repeat(40 * 1024)}\n---\nText`).data).length === 0);
   check('a block that is a list, not keys, holds nothing', Object.keys(splitPage('---\n- a\n- b\n---\nText').data).length === 0);
   check('nothing was run by reading blocks directly either', !(await ran()));
+
+  // ------------------------------------------------------ printing what it holds
+  const printed = new Map(propertiesOf(splitPage('---\ntitle: A\ncreated: 2026-01-02\ntags: [a, b]\nowner: { name: Mark, since: 2024 }\nempty:\n---\nText').data));
+  check('a date is printed as a date', printed.get('created') === '2026-01-02', printed.get('created'));
+  check('a list is printed with commas', printed.get('tags') === 'a, b', printed.get('tags'));
+  check('a group of keys is printed with its keys', printed.get('owner') === '{ name: Mark, since: 2024 }', printed.get('owner'));
+  check('a key without a value is printed empty', printed.get('empty') === '');
+
+  // Nine levels, each nine times the one before: a few lines that stand for
+  // 387 million items.
+  const levels = ['a: &a [x, x, x, x, x, x, x, x, x]'];
+  for (const [i, name] of [...'bcdefghi'].entries()) {
+    const previous = String.fromCharCode('a'.charCodeAt(0) + i);
+    levels.push(`${name}: &${name} [${Array(9).fill(`*${previous}`).join(', ')}]`);
+  }
+  const large = `---\n${levels.join('\n')}\n---\n\n# Large\n`;
+  const began = Date.now();
+  const values = propertiesOf(splitPage(large).data);
+  const took = Date.now() - began;
+  check('a block that stands for millions of items is printed within limits', took < 500 && values.length === 9 && values.every(([, value]) => value.length <= 2000), `${took} ms, longest ${Math.max(...values.map(([, value]) => value.length))}`);
+
+  await fs.writeFile(path.join(dir, 'entities', 'large.md'), large);
+  const beganListing = Date.now();
+  await listPages(cluster);
+  const largePage = await readPage(cluster, 'entities/large');
+  check('and the page that holds it opens at once', Date.now() - beganListing < 2000 && largePage.title === 'Large', `${Date.now() - beganListing} ms`);
 
   // --------------------------------------------------- one place calls the parser
   const callers = [];
