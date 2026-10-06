@@ -18,7 +18,7 @@ export function outlineOf(markdown: string): Heading[] {
   const used = new Map<string, number>();
   let fence: string | null = null;
 
-  for (const line of markdown.split('\n')) {
+  for (const line of markdown.split(/\r?\n/)) {
     // A `#` inside a code block is a comment, not a heading.
     const mark = line.match(/^\s{0,3}(`{3,}|~{3,})/)?.[1] ?? null;
     if (mark) {
