@@ -208,7 +208,7 @@ async function scan(cluster: string, previous: Wiki | null): Promise<Wiki> {
   }
 
   const ordered = inTreeOrder(entries, folders);
-  const rules = await readIfPresent(clusterPath(cluster, layout.rulesFile));
+  const rules = (await readIfPresent(clusterPath(cluster, layout.rulesFile)))?.replace(/\r\n/g, '\n') ?? null;
   const registry = ordered.get('businesses')?.body ?? null;
   return { layout, folders, entries: ordered, names: namesOf(entries), facets: facetsOf(layout, rules, registry) };
 }
@@ -240,7 +240,8 @@ async function readEntry(item: { slug: string; dir: string; file: string }, mtim
     aliases: listOf(data.aliases ?? data.alias),
     facets: facetsIn(data),
     data,
-    body: content.trim(),
+    // Line ends as one kind: a page written on Windows is the same page.
+    body: content.replace(/\r\n/g, '\n').trim(),
     links: extractWikilinks(raw),
     fingerprint: fingerprint(raw),
     mtimeMs,
@@ -392,7 +393,7 @@ export async function readLog(cluster: string, limit = 20): Promise<LogEntry[]> 
   if (!raw) return [];
 
   const entries: LogEntry[] = [];
-  for (const line of raw.split('\n')) {
+  for (const line of raw.split(/\r?\n/)) {
     const head = line.match(/^#{1,6}\s*\[(\d{4}-\d{2}-\d{2})\]\s*([A-Za-z-]+)\s*\|\s*(.+?)\s*$/);
     if (head) {
       entries.push({ when: head[1], action: head[2].toLowerCase(), subject: withoutLinks(head[3]), details: [] });

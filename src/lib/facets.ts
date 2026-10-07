@@ -78,7 +78,7 @@ export function facetsOf(layout: Layout, rules: string | null, registry: string 
 export function tableValues(markdown: string): FacetValue[] {
   const out: FacetValue[] = [];
   const seen = new Set<string>();
-  for (const line of markdown.split('\n')) {
+  for (const line of markdown.split(/\r?\n/)) {
     const row = line.match(/^\s*\|\s*`([^`\s|]+)`\s*\|(.*)$/);
     if (!row) continue;
     const value = row[1].trim();
@@ -98,8 +98,12 @@ export function areasIn(rules: string | null): FacetValue[] | null {
   if (!rules) return null;
   const from = rules.search(/^#{1,6}[^\n]*\barea\b/im);
   if (from === -1) return null;
-  const to = rules.slice(from + 1).search(/^#{1,2}\s/m);
-  const section = rules.slice(from, to === -1 ? undefined : from + 1 + to);
+  // From the line after the heading to the next heading of the first or second level.
+  // Counted from the heading's own line end: a `##` heading is itself such a heading.
+  const body = rules.indexOf('\n', from);
+  if (body === -1) return null;
+  const to = rules.slice(body).search(/^#{1,2}\s/m);
+  const section = rules.slice(body, to === -1 ? undefined : body + to);
   const values = tableValues(section).map((row) => ({ ...row, label: labelOf(row.value), note: row.label }));
   return values.length > 0 ? values : null;
 }

@@ -82,6 +82,7 @@ try {
   check('rules without a table of areas get the schema’s own', areasIn('# Rules\n\nNo table here.\n') === null && facetsOf(BRAIN, null, null)[1].values.map((v) => v.value).join() === AREAS_BY_DEFAULT.join());
   check('a registry with bold names and no page still reads', tableValues('| `a-co` | **A Co** | | new |\n| `b-co` | B Co | [[b-co]] | |')[0].label === 'A Co' && tableValues('| `b-co` | B Co | [[b-co|B]] |')[0].page === 'b-co');
   check('a registry lists a value once', tableValues('| `a` | A | | |\n| `a` | A again | | |').length === 1);
+  check('a registry written on Windows reads the same', tableValues('| slug | name |\r\n|---|---|\r\n| `a-co` | A Co | [[a-co]] | x |\r\n| `b-co` | B Co | | |\r\n').map((v) => v.value).join() === 'a-co,b-co' && (areasIn('## The area list\r\n\r\n| `finance` | money |\r\n| `sales` | deals |\r\n') ?? []).length === 2);
 
   // -------------------------------------------------------- the problems
   const good = { slug: 'entities/x', dir: 'entities', type: 'entity', data: { title: 'X', type: 'entity', business: ['group'], area: ['finance'], created: '2026-01-02', updated: new Date('2026-01-03'), confidence: 'high' }, facets: { business: ['group'], area: ['finance'] } };
