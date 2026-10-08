@@ -24,6 +24,11 @@ process.env.AUTH_EMAIL = 'Someone@Example.com';
 // must keep working.
 process.env.AUTH_PASSWORD_HASH = ['scrypt', 16384, 8, 1, salt.toString('base64url'), scryptSync(PASSWORD, salt, 64, { N: 16384, r: 8, p: 1 }).toString('base64url')].join(':');
 process.env.SESSION_SECRET = randomBytes(48).toString('base64url');
+process.env.AUTH_CODE_EMAIL = 'ptraynor@example.com';
+process.env.AUTH_CODE_PHONE = '+1 (518) 555-0168';
+process.env.AUTH_TOTP_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
+const captureDir = await (await import('node:fs/promises')).mkdtemp((await import('node:path')).join((await import('node:os')).tmpdir(), 'brain-codes-'));
+process.env.CODE_CAPTURE_DIR = captureDir;
 
 await compileLib();
 const lib = (name) => pathToFileURL(path.join(OUT_DIR, `${name}.js`)).href;
@@ -31,7 +36,10 @@ const { gate, isPublicPath, returnPath, publicOrigin } = await import(lib('gate'
 const { createSession, verifySession, readSession, sessionIdOf } = await import(lib('session'));
 const totp = await import(lib('totp'));
 const auth = await import(lib('auth'));
-const { authConfigured, SESSION_MAX_AGE_S } = await import(lib('env-auth'));
+const { authConfigured, SESSION_MAX_AGE_S, maskEmail, maskPhone, emailCodesOn, smsCodesOn, secondFactorOn } = await import(lib('env-auth'));
+const captcha = await import(lib('captcha'));
+const signin = await import(lib('signin'));
+const fsp = await import('node:fs/promises');
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -44,7 +52,7 @@ const check = (name, pass, detail = '') => {
 const PROTECTED = [
   '/', '/new', '/c/ops', '/c/ops/graph', '/c/ops/ask', '/c/ops/entities/warehouse-team',
   '/api/clusters', '/api/upload', '/api/chat', '/api/jobs/abc', '/api/pipeline/plan', '/api/pipeline/execute',
-  '/api/pipeline/reject', '/api/pipeline/undo', '/api/auth/logout', '/api/search', '/api/clusters/settings', '/api/page', '/api/auth/sessions', '/security', '/api/asset', '/api/assets', '/api/asset?cluster=ops&path=raw%2Fassets%2Fa.png', '/api/page/rename',
+  '/api/pipeline/reject', '/api/pipeline/undo', '/api/auth/logout', '/api/search', '/api/clusters/settings', '/api/page', '/api/auth/sessions', '/security', '/api/asset', '/api/assets', '/api/asset?cluster=ops&path=raw%2Fassets%2Fa.png', '/api/page/rename', '/api/auth/captcha/', '/api/auth/verify/x', '/api/auth/codes',
   // A dot in a path says nothing about what the path is.
   '/api/clusters.json', '/api/x.json', '/c/a.b', '/c/ops/entities/page.md', '/new.html', '/.env', '/api/auth/login.php',
   // Near misses of the public paths.
@@ -58,6 +66,7 @@ const leaks = PROTECTED.filter((p) => gate(p, false) === 'allow');
 check('nothing protected gets through without a session', leaks.length === 0, leaks.length ? `open: ${leaks.join(', ')}` : `${PROTECTED.length} paths`);
 check('API routes answer 401, pages go to the login', gate('/api/clusters', false) === 'unauthorized' && gate('/c/ops', false) === 'to-login');
 check('the login page and its endpoint are reachable', gate('/login', false) === 'allow' && gate('/api/auth/login', false) === 'allow');
+check('the sign-in steps are reachable without a session', ['/api/auth/captcha', '/api/auth/code', '/api/auth/verify'].every((p) => gate(p, false) === 'allow'));
 check('the epoch and the revoked ids are reachable, for the middleware', gate('/api/auth/state', false) === 'allow' && gate('/api/auth/state/', false) !== 'allow' && gate('/api/auth/states', false) !== 'allow');
 check('build output is reachable', isPublicPath('/_next/static/chunks/main.js') && isPublicPath('/favicon.ico'));
 check('the app’s mark is reachable, so the login page can show it', isPublicPath('/icon.png'));
@@ -114,6 +123,58 @@ const fresh = totp.generateSecret();
 check('a new secret is base32 and long enough for any app', totp.isSecret(fresh) && fresh.length === 32 && totp.generateSecret() !== fresh);
 check('the setup address carries the secret and the account', totp.otpauthUrl(fresh, 'someone@example.com').startsWith(`otpauth://totp/Second%20Brain%3Asomeone%40example.com?secret=${fresh}&issuer=Second%20Brain&`));
 check('a secret with spaces and dashes still works', totp.codeAt('gezd gnbv-gy3t qojq gezd gnbv gy3t qojq', 1) === '287082');
+
+// ------------------------------------------------------------ the captcha
+const puzzle = await captcha.captchaChallenge();
+check('a puzzle is signed and expires', typeof puzzle.signature === 'string' && typeof puzzle.parameters.expiresAt === 'number' && puzzle.parameters.expiresAt * 1000 > Date.now());
+const solved = await captcha.solveCaptcha(puzzle);
+check('a solved puzzle is taken', await captcha.verifyCaptcha(solved));
+check('and not taken twice', !(await captcha.verifyCaptcha(solved)));
+const another = await captcha.solveCaptcha(await captcha.captchaChallenge());
+const tampered = Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(another, 'base64').toString()), solution: { counter: 1, derivedKey: '00' } })).toString('base64');
+check('a wrong solution is refused', !(await captcha.verifyCaptcha(tampered)));
+const late = await captcha.captchaChallenge();
+check('an expired puzzle is refused', !(await captcha.verifyCaptcha(await captcha.solveCaptcha(late), Date.now() + 3 * 60 * 1000)));
+check('junk is refused, not thrown on', !(await captcha.verifyCaptcha('')) && !(await captcha.verifyCaptcha(null)) && !(await captcha.verifyCaptcha('bm90IGpzb24=')) && !(await captcha.verifyCaptcha(Buffer.from('{"challenge":{},"solution":{}}').toString('base64'))));
+const foreign = await captcha.solveCaptcha(await (await import('altcha-lib')).createChallenge({ algorithm: 'SHA-256', cost: 1000, keyPrefix: '0', deriveKey: (await import('altcha-lib/algorithms/sha')).deriveKey, hmacSignatureSecret: 'someone else', expiresAt: Math.floor(Date.now() / 1000) + 60 }));
+check('a puzzle signed by someone else is refused', !(await captcha.verifyCaptcha(foreign)));
+
+// ---------------------------------------------------------- the masks
+check('an address is masked to its first two letters', maskEmail('ptraynor@gammaincome.com') === 'pt******@gammaincome.com' && maskEmail('a@b.co') === 'a****@b.co' && maskEmail('') === '');
+check('a US number shows the area code and the last two digits', maskPhone('+15182532468') === '+1 (518) *****68' && maskPhone('+1 (518) 253-2468') === '+1 (518) *****68');
+check('another country shows the code and the last two', maskPhone('+447911123456') === '+44 ********56');
+check('with codes captured, email and text are on, and so is the app', emailCodesOn() && smsCodesOn() && secondFactorOn());
+
+// ------------------------------------------------------ the sign-in code
+signin.forgetSignIns();
+const opened = signin.openSignIn('10.0.0.9');
+check('after the password, a ticket and the ways', opened.ticket.length >= 20 && opened.methods.map((m) => m.kind).join() === 'email,sms,totp' && opened.methods[0].to === 'pt******@example.com' && opened.methods[1].to === '+1 (518) *****68');
+const codeFiles = async () => (await fsp.readdir(captureDir)).sort();
+const sent = await signin.sendSignInCode(opened.ticket, 'email');
+const mailFile = (await codeFiles()).find((f) => f.startsWith('mail-'));
+const mail = JSON.parse(await fsp.readFile(`${captureDir}/${mailFile}`, 'utf8'));
+const code = mail.text.match(/\b(\d{6})\b/)[1];
+check('a code is emailed to the address, masked in the reply', sent.to === 'pt******@example.com' && mail.to === 'ptraynor@example.com' && /^\d{6}$/.test(code) && mail.subject.includes(code));
+check('a wrong code is refused and counted', !signin.verifySignInCode(opened.ticket, 'email', '000000') && !signin.verifySignInCode(opened.ticket, 'email', code.slice(0, 5)));
+check('the code by the other way is refused', !signin.verifySignInCode(opened.ticket, 'sms', code));
+const spent = (fn) => { try { fn(); return null; } catch (err) { return err.status; } };
+check('the right code signs in, and the ticket is spent', signin.verifySignInCode(opened.ticket, 'email', `${code.slice(0, 3)} ${code.slice(3)}`) && spent(() => signin.verifySignInCode(opened.ticket, 'email', code)) === 410);
+const second = signin.openSignIn('10.0.0.9');
+const resend = await signin.sendSignInCode(second.ticket, 'sms').then(() => signin.sendSignInCode(second.ticket, 'sms')).then(() => 'sent', (err) => err.status);
+check('a text goes to the number, and a second one must wait', (await codeFiles()).some((f) => f.startsWith('sms-')) && resend === 429);
+const third = signin.openSignIn('10.0.0.9');
+await signin.sendSignInCode(third.ticket, 'email');
+let left = 0;
+for (let i = 0; i < 5; i++) if (!signin.verifySignInCode(third.ticket, 'email', '111111')) left++;
+check('five wrong codes spend the ticket', left === 5 && (await (async () => { try { signin.verifySignInCode(third.ticket, 'email', '111111'); return null; } catch (err) { return err.status; } })()) === 410);
+const totpTicket = signin.openSignIn('10.0.0.9');
+const { codeAt, stepOf } = await import(lib('totp'));
+const appCode = codeAt('GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ', stepOf(Date.now()));
+check('the authenticator needs no sending and signs in', signin.verifySignInCode(totpTicket.ticket, 'totp', appCode));
+check('an authenticator code is taken once', !signin.verifySignInCode(signin.openSignIn('10.0.0.9').ticket, 'totp', appCode));
+check('a ticket nobody opened is 410', (() => { try { signin.verifySignInCode('nope', 'email', '123456'); return null; } catch (err) { return err.status; } })() === 410);
+check('an expired ticket is 410', (() => { const t = signin.openSignIn('10.0.0.9', 0); try { signin.verifySignInCode(t.ticket, 'email', '123456', 11 * 60 * 1000); return null; } catch (err) { return err.status; } })() === 410);
+await fsp.rm(captureDir, { recursive: true, force: true }).catch(() => {});
 
 // ------------------------------------------------------------- the password
 check('sign-in is configured', authConfigured());

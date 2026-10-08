@@ -64,7 +64,7 @@ npm run build && npm run serve
 | `npm run check:layout` | Both layouts, and above all a brain: reading it, filing into it, what is committed, the check after filing, the whole-wiki check, the command line, and that 350 pages are read once |
 | `npm run check:facets` | The facets of a brain: read from its registry and its rules, what a page's block gets wrong, the check after filing, the plan, a brain made from the interview, callouts |
 | `npm run check:design` | The look: the colours against `DESIGN.md`, dark mode complete, no class name that Tailwind also uses, the outline and the links |
-| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, images served, refused and added, a page renamed and one deleted, the trail, a signed-out agent. Needs `npm run build` first |
+| `npm run check:live` | The built app, started the way the server starts it and used over HTTP: sign-in, the second factor, sessions ended one by one and all at once, redirects, one document from upload to filed page, one filed at once, one discarded, one undone, chat, the editor's reads and writes, images served, refused and added, a page renamed and one deleted, the trail, a signed-out agent; the sign-in through the captcha and a code by email, by text and by the app. Needs `npm run build` first |
 | `npm run check:real` | The app's exact command line against the real `claude`. Not part of `check`: it needs the binary |
 | `npm run typecheck` | TypeScript |
 
@@ -137,6 +137,13 @@ sudo cp /opt/brain-app/.env.example /opt/brain-app/.env
 sudo npm --prefix /opt/brain-app run hash-password -- you@example.com
 sudo npm --prefix /opt/brain-app run totp-secret
 sudoedit /opt/brain-app/.env
+```
+
+The sign-in code needs a way out: the `SMTP_*` lines for email (a mailbox
+with an app password), or `GHL_*` for texts, and where codes go in
+`AUTH_CODE_EMAIL` and `AUTH_CODE_PHONE`. See `.env.example`.
+
+```bash
 sudo chown root:root /opt/brain-app/.env && sudo chmod 600 /opt/brain-app/.env
 ```
 
@@ -196,9 +203,20 @@ failure. Repeat step 4, then upload the document again.
 
 ## Sign-in
 
-One login, shared, with a password and, where `AUTH_TOTP_SECRET` is set, the
-six-digit code from an authenticator app. Five wrong guesses block that address
-for a while; a code is taken once.
+One login, shared, in up to three steps. First a captcha and the password:
+the captcha is ALTCHA, self-hosted, a small puzzle the browser solves, signed
+by the app and good once, with nothing sent anywhere else (`AUTH_CAPTCHA=off`
+switches it off). Then, where a second factor is set up, a six-digit code:
+emailed (`SMTP_*`, a Google Workspace mailbox with an app password works as
+is) or texted through GoHighLevel (`GHL_API_KEY`, `GHL_LOCATION_ID`; the
+number must be a contact there), to the address and number in
+`AUTH_CODE_EMAIL` and `AUTH_CODE_PHONE`, masked on screen. Under "Other ways"
+the authenticator app (`AUTH_TOTP_SECRET`). A code lives ten minutes, is tried
+five times at most and taken once; three codes per sign-in, half a minute
+apart. With none of the three set up, the password alone signs in: a dev
+machine. Five wrong guesses of password or code block that address for a
+while. `CODE_CAPTURE_DIR` writes codes to a folder instead of sending them,
+for the checks; never set it on the server.
 
 A session lives in a signed cookie for thirty days. What the server keeps about
 sessions is in `<WIKI_ROOT>/.dashboard/auth.json`: which are open, which were
