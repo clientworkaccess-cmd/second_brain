@@ -15,6 +15,8 @@ import { DASHBOARD_DIR } from './config';
 
 export type AuditEvent =
   | 'sign-in'
+  | 'sign-in-password'
+  | 'sign-in-code-sent'
   | 'sign-in-refused'
   | 'sign-out'
   | 'session-revoked'

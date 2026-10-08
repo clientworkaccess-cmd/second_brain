@@ -967,6 +967,18 @@
     gap: 6px;
   }
 
+  /* ---- The captcha on the sign-in, in the page's colours ---- */
+
+  .captcha altcha-widget {
+    --altcha-color-base: var(--bg-primary);
+    --altcha-color-border: var(--border);
+    --altcha-color-text: var(--text-normal);
+    --altcha-color-border-focus: var(--accent);
+    --altcha-border-radius: 4px;
+    --altcha-max-width: 100%;
+    display: block;
+  }
+
   /* ---- Rename and delete, from the status bar ---- */
 
   .page-action {

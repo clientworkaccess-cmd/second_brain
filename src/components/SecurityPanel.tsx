@@ -34,6 +34,8 @@ export interface TrailEntry {
 
 const SAID: Record<string, string> = {
   'sign-in': 'Signed in',
+  'sign-in-password': 'Password accepted, code pending',
+  'sign-in-code-sent': 'Sign-in code sent',
   'sign-in-refused': 'Sign-in refused',
   'sign-out': 'Signed out',
   'session-revoked': 'Session ended',

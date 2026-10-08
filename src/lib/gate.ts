@@ -9,7 +9,7 @@
 export type Gate = 'allow' | 'to-login' | 'to-home' | 'unauthorized';
 
 /** `/icon.png` is the app's mark, which the browser asks for on the login page too. `/api/auth/state` is what the middleware asks for the epoch and the revoked sessions. */
-const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/api/auth/state', '/favicon.ico', '/icon.png']);
+const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/api/auth/captcha', '/api/auth/code', '/api/auth/verify', '/api/auth/state', '/favicon.ico', '/icon.png']);
 
 /**
  * Next's own build output. Hashed file names, no user data.

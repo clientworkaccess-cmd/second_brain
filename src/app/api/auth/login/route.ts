@@ -1,17 +1,21 @@
 import { NextResponse } from 'next/server';
 import { audit, clientOf } from '@/lib/audit';
 import { isValidCredentials, recordFailure, recordSuccess, retryAfter } from '@/lib/auth';
-import { AUTH_TOTP_SECRET, SESSION_COOKIE, SESSION_MAX_AGE_S, authConfigured, secondFactorOn } from '@/lib/env-auth';
-import { createSession, sessionIdOf } from '@/lib/session';
-import { currentEpoch, rememberSession } from '@/lib/sessions';
-import { matchTotp } from '@/lib/totp';
+import { captchaOn, verifyCaptcha } from '@/lib/captcha';
+import { authConfigured, secondFactorOn } from '@/lib/env-auth';
+import { openSignIn } from '@/lib/signin';
+import { signedIn } from '../session-response';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-/** A code is taken once: the step it matched is remembered until it has passed. */
-const globalForTotp = globalThis as typeof globalThis & { __brainTotpUsed?: number };
-
+/**
+ * The first step of a sign-in: the captcha, then the email and password.
+ *
+ * Where a second factor is set up, a right password gets a ticket and the
+ * ways a code can reach the person, and the session comes from /api/auth/verify.
+ * Where none is, the session is made here, as it always was.
+ */
 export async function POST(request: Request) {
   if (!authConfigured()) {
     // Never fall back to a built-in login. A server without its three values
@@ -31,46 +35,31 @@ export async function POST(request: Request) {
 
   let email: unknown;
   let password: unknown;
-  let code: unknown;
+  let captcha: unknown;
   try {
-    ({ email, password, code } = (await request.json()) ?? {});
+    ({ email, password, captcha } = (await request.json()) ?? {});
   } catch {
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
   }
 
-  const refuse = async (reason: string) => {
-    recordFailure(client);
-    await audit({ event: 'sign-in-refused', client, detail: reason });
-    return NextResponse.json({ error: secondFactorOn() ? 'Invalid email, password or code' : 'Invalid email or password' }, { status: 401 });
-  };
-
-  if (!isValidCredentials(typeof email === 'string' ? email : null, typeof password === 'string' ? password : null)) {
-    return refuse('wrong email or password');
+  // The captcha first, and before the password is looked at: a script that
+  // cannot solve it learns nothing about the password either way.
+  if (captchaOn() && !(await verifyCaptcha(captcha))) {
+    return NextResponse.json({ error: 'Please complete the check and try again' }, { status: 400 });
   }
 
-  // The second factor, where it is set up. The password is checked first and
-  // always, so a wrong code costs the same as a wrong password.
+  if (!isValidCredentials(typeof email === 'string' ? email : null, typeof password === 'string' ? password : null)) {
+    recordFailure(client);
+    await audit({ event: 'sign-in-refused', client, detail: 'wrong email or password' });
+    return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
+  }
+
   if (secondFactorOn()) {
-    const step = matchTotp(AUTH_TOTP_SECRET, typeof code === 'string' ? code : '');
-    if (step === null) return refuse('wrong code');
-    if (globalForTotp.__brainTotpUsed === step) return refuse('a code used already');
-    globalForTotp.__brainTotpUsed = step;
+    const { ticket, methods } = openSignIn(client);
+    await audit({ event: 'sign-in-password', client, detail: methods.map((m) => m.kind).join(', ') });
+    return NextResponse.json({ ticket, methods });
   }
 
   recordSuccess(client);
-  const token = await createSession(await currentEpoch());
-  await rememberSession(sessionIdOf(token) ?? '', client, request.headers.get('user-agent') ?? '');
-  await audit({ event: 'sign-in', client, session: token.slice(0, 8) });
-
-  const response = NextResponse.json({ success: true });
-  response.cookies.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: SESSION_MAX_AGE_S,
-    // Behind the proxy the app itself is reached over plain HTTP on loopback,
-    // so the request URL alone would always say "not secure".
-    secure: request.headers.get('x-forwarded-proto') === 'https' || request.url.startsWith('https://'),
-  });
-  return response;
+  return signedIn(request, client, 'password alone');
 }

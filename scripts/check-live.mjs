@@ -19,6 +19,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createHmac, randomBytes, scryptSync } from 'node:crypto';
+import { solveChallenge } from 'altcha-lib';
+import { deriveKey } from 'altcha-lib/algorithms/sha';
 import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -76,6 +78,8 @@ async function start(agentArgs = 'scripts/fake-claude.mjs', { relative = false, 
     AUTH_EMAIL: EMAIL,
     AUTH_PASSWORD_HASH: HASH,
     SESSION_SECRET: randomBytes(48).toString('base64url'),
+    AUTH_CODE_EMAIL: EMAIL,
+    CODE_CAPTURE_DIR: path.join(wiki, '.codes'),
     ...extraEnv,
   });
   // Started from the checkout, as the service unit does. APP_DIR is left unset
@@ -107,11 +111,46 @@ async function stopAll() {
 const json = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 const withCookie = (init, cookie) => ({ ...init, headers: { ...(init.headers ?? {}), cookie } });
 
-async function signIn(base, password = PASSWORD, headers = {}, code = undefined) {
-  const init = json(code === undefined ? { email: EMAIL, password } : { email: EMAIL, password, code });
-  const res = await fetch(`${base}/api/auth/login`, { ...init, headers: { ...init.headers, ...headers } });
+/** The captcha, solved the way the widget does it. */
+async function solvedCaptcha(base) {
+  const challenge = await (await fetch(`${base}/api/auth/captcha`)).json();
+  const solution = await solveChallenge({ challenge, deriveKey });
+  return Buffer.from(JSON.stringify({ challenge, solution })).toString('base64');
+}
+
+/** The newest code written to a server's capture folder. */
+async function latestCode(instance, kind = 'mail') {
+  const dir = path.join(instance.wiki, '.codes');
+  const files = (await fs.readdir(dir).catch(() => [])).filter((f) => f.startsWith(kind)).sort();
+  if (files.length === 0) return null;
+  const message = JSON.parse(await fs.readFile(path.join(dir, files[files.length - 1]), 'utf8'));
+  return { code: message.text.match(/\b(\d{6})\b/)?.[1] ?? null, to: message.to };
+}
+
+/**
+ * The whole sign-in: captcha, password, a code by email (read back from the
+ * capture folder), the session. `password` wrong stops at the password and
+ * returns that response; `options.captcha` false skips the puzzle.
+ */
+async function signIn(base, password = PASSWORD, headers = {}, options = {}) {
+  const instance = running.find((r) => r.base === base);
+  const body = { email: EMAIL, password };
+  if (options.captcha !== false) body.captcha = options.captcha ?? (await solvedCaptcha(base));
+  const first = await fetch(`${base}/api/auth/login`, { ...json(body), headers: { 'content-type': 'application/json', ...headers } });
+  const firstSet = first.headers.get('set-cookie') ?? '';
+  if (!first.ok || firstSet) return { res: first, set: firstSet, cookie: firstSet.split(';')[0], first };
+  const opened = await first.json();
+  if (!opened.ticket) return { res: first, set: '', cookie: '', first, opened };
+  const method = options.method ?? 'email';
+  let code = options.code;
+  if (method !== 'totp') {
+    const sentRes = await fetch(`${base}/api/auth/code`, { ...json({ ticket: opened.ticket, method }), headers: { 'content-type': 'application/json', ...headers } });
+    if (!sentRes.ok) return { res: sentRes, set: '', cookie: '', first, opened };
+    code ??= (await latestCode(instance, method === 'sms' ? 'sms' : 'mail'))?.code;
+  }
+  const res = await fetch(`${base}/api/auth/verify`, { ...json({ ticket: opened.ticket, method, code }), headers: { 'content-type': 'application/json', ...headers } });
   const set = res.headers.get('set-cookie') ?? '';
-  return { res, set, cookie: set.split(';')[0] };
+  return { res, set, cookie: set.split(';')[0], first, opened, code };
 }
 
 /** Read an event stream until it closes. Returns every event in order. */
@@ -238,6 +277,16 @@ try {
   // ------------------------------------------------------------- sign-in
   const wrong = await signIn(base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.1' });
   check('a wrong password is refused', wrong.res.status === 401 && !wrong.set, String(wrong.res.status));
+  const noCaptcha = await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.1' }, { captcha: false });
+  check('without the captcha the password is not even looked at', noCaptcha.res.status === 400 && !noCaptcha.set, String(noCaptcha.res.status));
+  const reused = await solvedCaptcha(base);
+  const onceA = await signIn(base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.1' }, { captcha: reused });
+  const onceB = await signIn(base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.1' }, { captcha: reused });
+  check('a solved captcha is good once', onceA.res.status === 401 && onceB.res.status === 400, `${onceA.res.status} then ${onceB.res.status}`);
+  const stopped = await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.1' }, { code: '000000' });
+  check('a wrong emailed code is refused, with no cookie', stopped.res.status === 401 && !stopped.set && stopped.opened?.methods?.[0]?.kind === 'email' && stopped.opened.methods[0].to === 'so*****@example.com', `${stopped.res.status} ${JSON.stringify(stopped.opened?.methods)}`);
+  const emailed = await latestCode(app, 'mail');
+  check('the code went to the address, with a plain message', emailed?.to === EMAIL && /^\d{6}$/.test(emailed?.code ?? '') && !(await (async () => (await fs.readdir(path.join(app.wiki, '.codes'))).some((f) => f.startsWith('sms')))()), JSON.stringify(emailed));
 
   const session = await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.1' });
   check('the right password signs in', session.res.status === 200 && session.cookie.startsWith('brain_session='), String(session.res.status));
@@ -464,25 +513,31 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 
   // ---------------------------------------------------- the second factor
   const SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
-  const guarded = await start('scripts/fake-claude.mjs', { extraEnv: { AUTH_TOTP_SECRET: SECRET } });
-  check('the login page asks for a code', (await (await fetch(`${guarded.base}/login`)).text()).includes('authenticator'));
-  const noCode = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' });
-  check('the password alone is refused', noCode.res.status === 401 && !noCode.set && /code/.test((await noCode.res.json()).error ?? ''), String(noCode.res.status));
-  const wrongCode = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, '000000');
-  check('a wrong code is refused', wrongCode.res.status === 401 && !wrongCode.set, String(wrongCode.res.status));
-  const wrongPassword = await signIn(guarded.base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.9' }, totpNow(SECRET));
-  check('the right code with a wrong password is refused', wrongPassword.res.status === 401 && !wrongPassword.set, String(wrongPassword.res.status));
-  const withCode = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, totpNow(SECRET));
-  check('the password and the code sign in', withCode.res.status === 200 && withCode.cookie.startsWith('brain_session='), String(withCode.res.status));
-  const replayed = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, totpNow(SECRET));
-  check('the same code is not taken twice', replayed.res.status === 401, String(replayed.res.status));
-  check('the session opens the app', (await fetch(`${guarded.base}/api/clusters`, { headers: { cookie: withCode.cookie } })).status === 200);
+  const guarded = await start('scripts/fake-claude.mjs', { extraEnv: { AUTH_TOTP_SECRET: SECRET, AUTH_CODE_PHONE: '+15185550168' } });
+  check('the login page carries the captcha', (await (await fetch(`${guarded.base}/login`)).text()).includes('altcha-widget'));
+  const ways = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { code: '000000' });
+  check('after the password, email and text are offered, and the app under other ways', ways.opened?.methods?.map((m) => m.kind).join() === 'email,sms,totp' && ways.opened.methods[1].to === '+1 (518) *****68', JSON.stringify(ways.opened?.methods));
+  const texted = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { method: 'sms' });
+  check('a code by text signs in', texted.res.status === 200 && texted.cookie.startsWith('brain_session=') && (await latestCode(guarded, 'sms'))?.to === '+15185550168', String(texted.res.status));
+  const wrongPassword = await signIn(guarded.base, `${PASSWORD}x`, { 'x-forwarded-for': '198.51.100.9' });
+  check('a wrong password never reaches the code', wrongPassword.res.status === 401 && !wrongPassword.set && !wrongPassword.opened, String(wrongPassword.res.status));
+  const withApp = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { method: 'totp', code: totpNow(SECRET) });
+  check('the authenticator code signs in, with nothing sent', withApp.res.status === 200 && withApp.cookie.startsWith('brain_session='), String(withApp.res.status));
+  const replayed = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { method: 'totp', code: totpNow(SECRET) });
+  check('the same app code is not taken twice', replayed.res.status === 401, String(replayed.res.status));
+  const wrongApp = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { method: 'totp', code: '000000' });
+  check('a wrong app code is refused', wrongApp.res.status === 401 && !wrongApp.set, String(wrongApp.res.status));
+  check('the session opens the app', (await fetch(`${guarded.base}/api/clusters`, { headers: { cookie: withApp.cookie } })).status === 200);
+  const plainServer = await start('scripts/fake-claude.mjs', { extraEnv: { CODE_CAPTURE_DIR: '', AUTH_CAPTCHA: 'off' } });
+  const plain = await signIn(plainServer.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { captcha: false });
+  check('with nothing after the password set up and the captcha off, the password alone signs in', plain.res.status === 200 && plain.cookie.startsWith('brain_session='), String(plain.res.status));
+  check('the login page then shows no captcha', !(await (await fetch(`${plainServer.base}/login`)).text()).includes('altcha-widget'));
 
   // ----------------------------------------------- when Claude is signed out
   const down = await start('scripts/fake-claude.mjs --fail auth');
