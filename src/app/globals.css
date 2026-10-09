@@ -783,6 +783,71 @@
     color: var(--accent);
     border-color: var(--accent);
   }
+  /* What is kept out of the drawing: a panel under the header's Hide button. */
+  .graph-filter {
+    position: absolute;
+    top: 10px;
+    right: 12px;
+    z-index: 2;
+    width: 260px;
+    max-height: calc(100% - 20px);
+    overflow: auto;
+    padding: 8px 10px 10px;
+    font-size: 12px;
+    background: color-mix(in srgb, var(--bg-secondary) 94%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
+  }
+  .graph-filter-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 6px;
+    font-weight: 600;
+    color: var(--text-normal);
+  }
+  .graph-filter-head span {
+    flex: 1;
+  }
+  .graph-filter-group {
+    margin: 6px 0 0;
+    padding: 4px 0 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+  .graph-filter-group legend {
+    padding: 0;
+    color: var(--text-faint);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .graph-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    line-height: 1.8;
+    cursor: pointer;
+  }
+  .graph-filter-row input {
+    accent-color: var(--accent);
+  }
+  .graph-filter-input {
+    width: 100%;
+    margin-top: 4px;
+    padding: 4px 6px;
+    font: inherit;
+    color: var(--text-normal);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .graph-filter-hint {
+    margin: 4px 0 0;
+    color: var(--text-faint);
+    font-size: 11px;
+  }
 
   /* ---- The editor: the desktop app's editor.css, carried over ---- */
 
