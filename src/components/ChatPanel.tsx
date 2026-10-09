@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { SendHorizonal, MessageSquare, MessageSquarePlus, Square } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
+import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '@/lib/models';
 import { pageHref, resolveLink } from '@/lib/wikilinks';
 
 interface Turn {
@@ -15,6 +16,9 @@ interface Turn {
   error?: string;
   /** What the agent is doing right now, e.g. "Reading index.md". Shown only while it works. */
   activity?: string;
+  /** The model asked for, and the one that answered as the binary reported it. */
+  model?: string;
+  answeredBy?: string | null;
 }
 
 /**
@@ -31,6 +35,9 @@ interface Turn {
  * it kept, and remembers what was asked before. The conversation, and what was
  * said in it, stay for as long as the browser tab is. "New conversation"
  * starts afresh.
+ *
+ * The model is chosen beside the question (lib/models.ts) and remembered per
+ * wiki; each answer says which model gave it.
  */
 
 interface Kept {
@@ -71,16 +78,31 @@ export function ChatPanel({
   const [conversation, setConversation] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
+  const [model, setModel] = useState<ModelChoice['id']>(DEFAULT_MODEL);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const known = useMemo(() => new Map(titles), [titles]);
 
-  // What was said before the page was reloaded, back on screen.
+  // What was said before the page was reloaded, back on screen; and the model chosen last time.
   useEffect(() => {
     const before = kept(cluster);
     setConversation(before.conversation);
     setTurns(before.turns);
+    try {
+      const chosen = localStorage.getItem(`sb-chat-model:${cluster}`);
+      if (chosen && MODELS.some((m) => m.id === chosen)) setModel(chosen as ModelChoice['id']);
+    } catch {
+      /* the default, then */
+    }
   }, [cluster]);
+  const chooseModel = (next: ModelChoice['id']): void => {
+    setModel(next);
+    try {
+      localStorage.setItem(`sb-chat-model:${cluster}`, next);
+    } catch {
+      /* lasts for this page */
+    }
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -100,7 +122,7 @@ export function ChatPanel({
 
     setQuestion('');
     setBusy(true);
-    setTurns((t) => [...t, { question: text, answer: '', sources: [], done: false }]);
+    setTurns((t) => [...t, { question: text, answer: '', sources: [], done: false, model }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -109,7 +131,7 @@ export function ChatPanel({
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster, question: text, conversation }),
+        body: JSON.stringify({ cluster, question: text, conversation, model: modelChoice(model) }),
         signal: controller.signal,
       });
 
@@ -149,6 +171,9 @@ export function ChatPanel({
             // way, before it had read what it needed, is not part of it.
             const { text: whole } = JSON.parse(raw) as { text: string };
             if (whole.trim()) setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: whole })));
+          } else if (event === 'end') {
+            const { model: by } = JSON.parse(raw) as { model?: string | null };
+            setTurns((t) => patchLast(t, (turn) => ({ ...turn, answeredBy: by ?? null })));
           } else if (event === 'error') {
             const { message } = JSON.parse(raw) as { message: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, error: message, done: true })));
@@ -238,6 +263,13 @@ export function ChatPanel({
                 </p>
               )}
 
+              {turn.done && !turn.error && (turn.answeredBy || turn.model) && (
+                <p className="mt-2 text-small text-faint" title={turn.answeredBy ?? undefined}>
+                  {familyOf(turn.answeredBy) ?? MODELS.find((m) => m.id === turn.model)?.label}
+                  {turn.model && turn.model !== 'default' && familyOf(turn.answeredBy) && familyOf(turn.answeredBy)?.toLowerCase() !== turn.model ? ` (asked for ${MODELS.find((m) => m.id === turn.model)?.label})` : ''}
+                </p>
+              )}
+
               {turn.sources.length > 0 && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span className="text-small text-muted">From</span>
@@ -276,6 +308,20 @@ export function ChatPanel({
             placeholder={`Ask something the ${cluster} cluster covers…`}
             aria-label="Your question"
           />
+          <select
+            className="chat-model"
+            aria-label="Which model answers"
+            title={MODELS.find((m) => m.id === model)?.hint}
+            value={model}
+            disabled={busy}
+            onChange={(e) => chooseModel(e.target.value as ModelChoice['id'])}
+          >
+            {MODELS.map((m) => (
+              <option key={m.id} value={m.id} title={m.hint}>
+                {m.label}
+              </option>
+            ))}
+          </select>
           {busy ? (
             <Button variant="ghost" onClick={() => abortRef.current?.abort()} aria-label="Stop">
               <Square size={14} />

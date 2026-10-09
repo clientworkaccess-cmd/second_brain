@@ -5,6 +5,7 @@ import { exists } from '@/lib/clusters';
 import { chatPrompt } from '@/lib/chat';
 import { CONVERSATION_ID, agentFailure, runClaude, type AgentRun, type Conversation } from '@/lib/claude';
 import { layoutOf, type Layout } from '@/lib/layout';
+import { modelChoice } from '@/lib/models';
 import { sseResponse } from '@/lib/sse';
 
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,9 @@ export const runtime = 'nodejs';
  * the agent reading tools and nothing else, so a question cannot change the
  * wiki however it is phrased.
  *
+ * A question names the model it is asked of (lib/models.ts), or leaves it
+ * to the server. A conversation can change model between questions.
+ *
  * A question can be the next in a conversation. The client sends the id it was
  * given with the first answer; the agent resumes that session and remembers
  * what was asked and answered before. A conversation the binary no longer has
@@ -28,6 +32,7 @@ export async function POST(req: NextRequest) {
   let question: string;
   let layout: Layout;
   let conversation: Conversation;
+  let model: string | null;
 
   try {
     const body = await req.json();
@@ -39,6 +44,8 @@ export async function POST(req: NextRequest) {
     layout = await layoutOf(cluster);
     const given = String(body.conversation ?? '');
     conversation = CONVERSATION_ID.test(given) ? { id: given.toLowerCase(), resume: true } : { id: randomUUID(), resume: false };
+    // The model is the reader's choice for this question; anything but a known alias means the server's.
+    model = modelChoice(body.model);
   } catch (err) {
     if (err instanceof HttpError) return NextResponse.json({ error: err.message }, { status: err.status });
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
@@ -51,6 +58,7 @@ export async function POST(req: NextRequest) {
       cwd: clusterPath(cluster),
       layout,
       conversation: turn,
+      model,
       timeoutMs: CHAT_TIMEOUT_MS,
     });
 
@@ -82,7 +90,8 @@ export async function POST(req: NextRequest) {
             // What was streamed includes anything the agent said before it had
             // read what it needed. This is the answer it settled on.
             if (result.text.trim()) send('final', { text: result.text });
-            send('end', {});
+            // Which model answered, as the binary reported it: the reader sees it under the answer.
+            send('end', { model: result.model });
             break;
           }
 

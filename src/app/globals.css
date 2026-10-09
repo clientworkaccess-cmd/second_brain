@@ -1203,6 +1203,22 @@
   .chat-composer textarea:focus {
     border-color: var(--accent);
   }
+  /* Which model answers: a small choice beside the question. */
+  .chat-model {
+    flex: none;
+    height: 32px;
+    padding: 0 6px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .chat-model:hover:not(:disabled) {
+    color: var(--text-normal);
+    border-color: var(--text-faint);
+  }
 
   /*
    * ---- Which sidebars are open ----

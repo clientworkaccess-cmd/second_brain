@@ -380,6 +380,12 @@ for as long as the browser tab is: the agent resumes the session it kept and
 remembers what was asked. "New conversation" starts afresh. A conversation the
 binary no longer has is started again, and the reader is told.
 
+**A question chooses its model.** Beside the question: Default (what the
+server is set to in `CLAUDE_MODEL`, or Claude Code's own), Opus, Sonnet or
+Haiku, by Claude Code's aliases, so each follows the newest of its family.
+Remembered per wiki in the browser; each answer says which model gave it. A
+conversation can change model between questions.
+
 **Filing outlives its request.** `POST /api/upload` returns a job id as soon as
 the file is on disk. A refresh, a navigation or a proxy timeout cannot stop a
 write that runs for minutes. The browser reattaches.

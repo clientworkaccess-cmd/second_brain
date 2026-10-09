@@ -45,6 +45,7 @@ const { resolveLink, linkifyWikilinks, extractWikilinks } = await import(lib('wi
 const { buildGraph } = await import(lib('graph'));
 const { searchCluster } = await import(lib('search'));
 const { agentArgs } = await import(lib('claude'));
+const { modelChoice, familyOf, MODELS } = await import(lib('models'));
 const { checkWiki } = await import(lib('lint'));
 const { chatPrompt } = await import(lib('chat'));
 const { validatePlan, pathFor } = await import(lib('plans'));
@@ -188,6 +189,13 @@ try {
   for (const mode of ['plan', 'chat']) {
     check(`in a brain, ${mode === 'plan' ? 'planning' : 'a question'} is allowed no more than in a cluster`, listAfter(agentArgs(mode, BRAIN), '--allowedTools').join() === listAfter(agentArgs(mode, CLUSTER), '--allowedTools').join());
   }
+
+  // ---------------------------------------------------------------- the model
+  check('with no model chosen and none set, the binary picks', !agentArgs('chat', CLUSTER).includes('--model') && !agentArgs('chat', CLUSTER, null, null).includes('--model'));
+  check('the model chosen for a question goes after --model', valueAfter(agentArgs('chat', CLUSTER, null, 'haiku'), '--model') === 'haiku');
+  check('the choices are the aliases, and default', MODELS.map((m) => m.id).join() === 'default,opus,sonnet,haiku');
+  check('a known alias is taken, in any case; default and junk mean none', modelChoice('Opus') === 'opus' && modelChoice(' haiku ') === 'haiku' && modelChoice('default') === null && modelChoice('gpt-9000') === null && modelChoice(null) === null && modelChoice(42) === null);
+  check('a model id reads as its family', familyOf('claude-opus-5-5') === 'Opus' && familyOf('claude-haiku-4-5-20251001') === 'Haiku' && familyOf('fake-claude') === 'fake-claude' && familyOf(null) === null);
 
   // ------------------------------------------------------------------ plans
   const planOf = (kind) => ({ pages: [{ kind, name: 'Mark Chen', summary: 's', quote: 'q' }] });
