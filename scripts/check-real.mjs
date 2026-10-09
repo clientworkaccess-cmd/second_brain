@@ -79,9 +79,9 @@ await createCluster({ name: 'ops', scope: 'Returns and refunds', entities: '', q
 const cluster = path.join(process.env.WIKI_ROOT, 'ops');
 
 /** Exactly what the app would run, with everything it printed. */
-function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER, conversation = null) {
+function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER, conversation = null, model = null) {
   return new Promise((resolve) => {
-    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout, conversation);
+    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout, conversation, model);
     const child = spawn(cmd, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     let err = '';
@@ -149,6 +149,12 @@ for (const [layout, mode] of [CLUSTER, BRAIN].flatMap((l) => ['plan', 'execute',
   const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, { id, resume: false });
   check('chat, in a conversation: every flag and rule is accepted', !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
   check('chat, in a conversation: the session has the id the app gave it', r.init?.sessionId === id, r.init?.sessionId ?? '');
+}
+// A question asked of a model by name: the binary takes the alias and reports what it ran as.
+{
+  const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, null, 'haiku');
+  check('chat, a chosen model: the alias is accepted', !!r.init && !/unknown option|invalid (option|value)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
+  check('chat, a chosen model: the run reports it', /haiku/i.test(r.result?.model ?? r.init?.model ?? ''), r.result?.model ?? r.init?.model ?? 'no model reported');
 }
 console.log(`\nClaude Code ${version ?? 'of unknown version'}`);
 

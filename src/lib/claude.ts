@@ -137,7 +137,7 @@ function fromRoot(absolute: string): string {
 }
 
 /** The generated part of the command line. Exported so the check scripts can hold it against the real binary. */
-export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null): string[] {
+export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null, model: string | null = null): string[] {
   const { tools, allow } = profile(mode, layout);
   if (conversation && (mode !== 'chat' || !CONVERSATION_ID.test(conversation.id))) {
     throw new Error('Only a question can be part of a conversation, and its id is a UUID');
@@ -158,7 +158,8 @@ export function agentArgs(mode: AgentMode, layout: Layout, conversation: Convers
     // Nothing is kept of a run, except a conversation, which the next question
     // in it resumes.
     ...(conversation ? [conversation.resume ? '--resume' : '--session-id', conversation.id] : ['--no-session-persistence']),
-    ...(CLAUDE_MODEL ? ['--model', CLAUDE_MODEL] : []),
+    // The one chosen for this question, or the server's; neither means Claude Code's own default.
+    ...(model || CLAUDE_MODEL ? ['--model', model || (CLAUDE_MODEL as string)] : []),
   ];
 }
 
@@ -206,8 +207,9 @@ export function agentInvocation(
   cwd: string,
   layout: Layout,
   conversation: Conversation | null = null,
+  model: string | null = null,
 ): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
-  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation)], env: narrowEnv(cwd) };
+  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation, model)], env: narrowEnv(cwd) };
 }
 
 /** See streamLogDir() in config.ts. A run is never failed because its record could not be kept. */
@@ -235,6 +237,8 @@ export function runClaude(opts: {
   layout: Layout;
   /** Chat only: the conversation this question is part of. */
   conversation?: Conversation | null;
+  /** Chat only: the model chosen for this question (an alias from lib/models.ts), or null for the server's. */
+  model?: string | null;
   timeoutMs?: number;
   usageFile?: string;
 }): AgentRun {
@@ -243,7 +247,7 @@ export function runClaude(opts: {
   const parser = new StreamParser(opts.cwd);
   const chat = opts.mode === 'chat';
 
-  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null);
+  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null, opts.model ?? null);
   const record = openStreamLog(opts.mode);
   const child = spawn(command, args, {
     cwd: opts.cwd,

@@ -23,7 +23,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const OUT_DIR = path.join(root, '.libcheck');
 
 const MODULES = [
-  'env-auth', 'session', 'gate', 'auth', 'config', 'files', 'layout', 'facets', 'callouts', 'clusters', 'frontmatter', 'wiki', 'graph', 'lint', 'plans', 'sandbox', 'git', 'claude-stream', 'claude', 'chat', 'settings', 'jobs', 'wikilinks', 'outline', 'search', 'totp', 'audit', 'sessions', 'assetPaths', 'assets', 'rename', 'localGraph', 'captcha', 'mail', 'sms', 'signin', 'graphFilter',
+  'env-auth', 'session', 'gate', 'auth', 'config', 'files', 'layout', 'facets', 'callouts', 'clusters', 'frontmatter', 'wiki', 'graph', 'lint', 'plans', 'sandbox', 'git', 'claude-stream', 'claude', 'chat', 'settings', 'jobs', 'wikilinks', 'outline', 'search', 'totp', 'audit', 'sessions', 'assetPaths', 'assets', 'rename', 'localGraph', 'captcha', 'mail', 'sms', 'signin', 'graphFilter', 'models',
 ];
 
 export async function compileLib() {

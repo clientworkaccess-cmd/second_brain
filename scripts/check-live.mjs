@@ -470,6 +470,12 @@ try {
   check('a conversation that is no longer there is started afresh', gone.list.some((e) => e.name === 'activity' && /no longer there/.test(e.data.text)) && gone.list.at(-1)?.name === 'end' && goneSessions.length === 2 && goneSessions[1] !== goneSessions[0], goneSessions.join(' > '));
   const nowhere = await fetch(`${base}/api/chat`, withCookie(json({ cluster: '../operations', question: 'x' }), cookie));
   check('a cluster name cannot climb out of the wiki', nowhere.status === 400, String(nowhere.status));
+  const byHaiku = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Quickly: what is this?', model: 'haiku' }), cookie));
+  check('a question can choose its model, and the answer says which one answered', byHaiku.list.at(-1)?.name === 'end' && byHaiku.list.at(-1)?.data.model === 'haiku', JSON.stringify(byHaiku.list.at(-1)?.data));
+  const byDefault = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And by default?', model: 'gpt-9000' }), cookie));
+  check('a model the app does not know means the server\'s default, not a refusal', byDefault.list.at(-1)?.name === 'end' && byDefault.list.at(-1)?.data.model === 'fake-claude', JSON.stringify(byDefault.list.at(-1)?.data));
+  const switched2 = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Same conversation, other model?', conversation: conversationId, model: 'opus' }), cookie));
+  check('a conversation can change model between questions', switched2.list.find((e) => e.name === 'session')?.data.id === conversationId && switched2.list.at(-1)?.data.model === 'opus', JSON.stringify(switched2.list.at(-1)?.data));
 
   // ------------------------------------- filed at once, discarded, undone
   const switched = await fetch(`${base}/api/clusters/settings`, withCookie(json({ cluster: 'operations', settings: { filing: 'automatic' } }), cookie));

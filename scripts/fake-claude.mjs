@@ -49,6 +49,8 @@ const TOUCH = new Set(valueOf('--touch').split(',').map((s) => s.trim()).filter(
 const FAIL = valueOf('--fail');
 const TOOLS = valueOf('--tools').split(',').map((s) => s.trim()).filter(Boolean);
 const RESUMED = valueOf('--resume');
+// Reported back the way the real binary reports the model it ran as, so the app can show it.
+const MODEL = valueOf('--model') || 'fake-claude';
 const SESSION = RESUMED || valueOf('--session-id') || randomUUID();
 const started = Date.now();
 
@@ -90,7 +92,7 @@ emit({
   cwd: WIKI_PATH,
   tools: TOOLS,
   mcp_servers: [],
-  model: 'fake-claude',
+  model: MODEL,
   permissionMode: valueOf('--permission-mode') || 'default',
   slash_commands: [],
   apiKeySource: 'none',
@@ -166,7 +168,7 @@ async function stream(chunks, pause = 120) {
   return text;
 }
 
-function message(content, model = 'fake-claude') {
+function message(content, model = MODEL) {
   return { id: `msg_fake_${randomUUID()}`, type: 'message', role: 'assistant', model, content, stop_reason: null };
 }
 

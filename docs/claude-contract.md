@@ -33,7 +33,7 @@ claude -p \
   --strict-mcp-config \
   --disable-slash-commands \
   --no-session-persistence \
-  [--model $CLAUDE_MODEL]
+  [--model <the alias chosen for the question, else $CLAUDE_MODEL>]
 ```
 
 | Part | Why it is there |
