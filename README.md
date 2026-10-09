@@ -375,10 +375,24 @@ every block against the rules, and files that would steer a run. Nothing is
 changed; a person reads the report and decides. The check after a filing
 looks only at what that filing touched.
 
-**A question can follow the last.** The chat keeps one conversation per wiki
-for as long as the browser tab is: the agent resumes the session it kept and
-remembers what was asked. "New conversation" starts afresh. A conversation the
-binary no longer has is started again, and the reader is told.
+**Conversations are kept.** Every question belongs to a conversation, and the
+app keeps every conversation, with each question and answer, under
+`.dashboard/conversations/<wiki>/`: they are listed in the sidebar's Chats tab,
+newest first, can be renamed and deleted, and reopen the same on any browser.
+The agent remembers what was said: each question resumes Claude Code's own
+session for the conversation; when the binary no longer has it (cleaned up,
+or the server moved), the next question is given a recap from the app's record
+and the conversation carries on.
+
+**Discuss or Work.** Beside the question. In Discuss, the default, the agent
+reads and answers and cannot change anything. In Work it may write pages when
+asked to ("write that down", "add a page for…"), where a filing may and under
+the same deny rules. A turn in Work holds the wiki as a filing does (a filing
+meanwhile is refused, and the other way round), the wiki is checked afterwards
+as after a filing, and what it wrote is one restore point: the answer shows the
+pages it changed, what the check found, and an Undo. A turn in Work that the
+reader stops watching is let finish and is in the conversation when they come
+back.
 
 **A question chooses its model.** Beside the question: Default (what the
 server is set to in `CLAUDE_MODEL`, or Claude Code's own), Opus, Sonnet or

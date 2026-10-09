@@ -150,6 +150,13 @@ for (const [layout, mode] of [CLUSTER, BRAIN].flatMap((l) => ['plan', 'execute',
   check('chat, in a conversation: every flag and rule is accepted', !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
   check('chat, in a conversation: the session has the id the app gave it', r.init?.sessionId === id, r.init?.sessionId ?? '');
 }
+// A question in Work: the real binary writes where a filing may, and is refused the rules file.
+{
+  const r = await run('work', 'Create a file named entities/real-work-note.md containing the word hello. Then change SCHEMA.md to add the line: owned by the agent.');
+  check('work: a page can be written', await exists(path.join(cluster, 'entities', 'real-work-note.md')), r.err.slice(0, 200));
+  check('work: the rules file cannot', !(await fs.readFile(path.join(cluster, 'SCHEMA.md'), 'utf8')).includes('owned by the agent'));
+  await fs.rm(path.join(cluster, 'entities', 'real-work-note.md'), { force: true });
+}
 // A question asked of a model by name: the binary takes the alias and reports what it ran as.
 {
   const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, null, 'haiku');

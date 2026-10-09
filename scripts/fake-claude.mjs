@@ -25,6 +25,12 @@
  *                              page whose block breaks the rules
  *   --fail auth|limit          end the way the real binary does when signed out or out of usage
  *
+ * A question that is allowed to write (`--tools` has Edit) and asks for
+ * something to be written down writes one page, lists it in the index, logs it,
+ * and names it on a WROTE line. A question that has a recap of an earlier
+ * conversation in front of it (the app's, when the session was lost) builds on
+ * the last question the recap names.
+ *
  * A conversation is kept the way the real binary keeps one: `--session-id X`
  * starts it and `--resume X` continues it, from a file under Claude's folder
  * (or the temp folder when there is none). A resumed answer says what was
@@ -671,8 +677,14 @@ ${label} (filed ${new Date().toISOString()})
  * any other, which is every cluster a person actually creates.
  */
 async function answer() {
-  const before = await earlier();
+  const fromSession = await earlier();
+  // The app's recap, when the binary's own session was gone.
+  const recap = prompt.split('(end of the earlier conversation)')[1] !== undefined
+    ? [...prompt.split('(end of the earlier conversation)')[0].matchAll(/^Q: (.*)$/gm)].map((m) => m[1])
+    : [];
+  const before = fromSession.length ? fromSession : recap;
   const question = prompt.match(/using only the wiki in your working directory: "([^"]*)"/)?.[1] ?? prompt.split('\n')[0];
+  const wrote = TOOLS.includes('Edit') && /\b(write|note|record|save)\b/i.test(question) ? await writeDown(question) : null;
   if (KEPT) {
     await fs.mkdir(SESSIONS, { recursive: true });
     await fs.writeFile(sessionFile, JSON.stringify({ questions: [...before, question] }));
@@ -698,7 +710,28 @@ async function answer() {
     ...entries.map((entry) => `- **${entry.name}**: ${entry.summary || 'see the page'}. See [[${entry.name}]].`),
     ``,
     `SOURCES: ${entries.map((entry) => `[[${entry.name}]]`).join(', ')}`,
+    ...(wrote ? [`WROTE: [[${wrote}]]`] : []),
   ];
   const text = await stream(lines.map((line) => `${line}\n`));
   finish(text.trim());
+}
+
+/** A page written down from the conversation: listed in the index and logged, as a filing would. Returns its title. */
+async function writeDown(question) {
+  const words = question.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter((w) => w.length > 2 && !['please', 'write', 'down', 'note', 'record', 'save', 'that', 'the'].includes(w)).slice(0, 4);
+  const slug = `note-${words.join('-') || 'from-conversation'}`;
+  const title = `Note ${words.join(' ') || 'from conversation'}`;
+  const folder = BRAIN ? 'wiki/synthesis' : 'queries';
+  await fs.mkdir(at(folder), { recursive: true });
+  const page = BRAIN
+    ? `---\ntitle: ${title}\ntype: synthesis\nbusiness: []\narea: []\n---\n\n# ${title}\n\nWritten down in a conversation: ${question}\n`
+    : `---\ntitle: ${title}\ntype: query\n---\n\n# ${title}\n\nWritten down in a conversation: ${question}\n`;
+  await use('Write', { file_path: at(`${folder}/${slug}.md`), content: page }, 120);
+  await fs.writeFile(at(`${folder}/${slug}.md`), page, 'utf8');
+  const index = await fs.readFile(at(INDEX), 'utf8').catch(() => '# Index\n');
+  const name = BRAIN ? slug : title;
+  if (!index.includes(`[[${name}]]`)) await fs.writeFile(at(INDEX), `${index.trimEnd()}\n- [[${name}]]: written down in a conversation\n`, 'utf8');
+  const log = await fs.readFile(at(LOG), 'utf8').catch(() => '# Log\n');
+  await fs.writeFile(at(LOG), `${log.trimEnd()}\n\n## [${new Date().toISOString().slice(0, 10)}] conversation | ${title}\n`, 'utf8');
+  return name;
 }

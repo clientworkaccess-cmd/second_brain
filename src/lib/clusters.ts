@@ -8,7 +8,7 @@ import {
   JOBS_DIR,
   ORIGINALS_DIR,
   PLANS_DIR,
-  SETTINGS_DIR,
+  SETTINGS_DIR, CONVERSATIONS_DIR,
   STAGING_DIR,
   TRANSCRIPTS_DIR,
   WIKI_ROOT,
@@ -34,7 +34,7 @@ export interface Cluster {
 
 /** Create the dashboard-owned directories. Safe to call on every boot. */
 export async function ensureDashboardDirs(): Promise<void> {
-  for (const dir of [WIKI_ROOT, DASHBOARD_DIR, JOBS_DIR, STAGING_DIR, PLANS_DIR, ORIGINALS_DIR, TRANSCRIPTS_DIR, SETTINGS_DIR]) {
+  for (const dir of [WIKI_ROOT, DASHBOARD_DIR, JOBS_DIR, STAGING_DIR, PLANS_DIR, ORIGINALS_DIR, TRANSCRIPTS_DIR, SETTINGS_DIR, CONVERSATIONS_DIR]) {
     await fs.mkdir(dir, { recursive: true });
   }
 }

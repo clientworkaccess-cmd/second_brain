@@ -454,28 +454,75 @@ try {
   check('the editor needs a session', anon.status === 401, String(anon.status));
 
   // ---------------------------------------------------------------- chat
+  const tokensOf = (stream) => stream.list.filter((e) => e.name === 'token').map((e) => e.data.text).join('');
+  const convOf = (stream) => stream.list.find((e) => e.name === 'conversation')?.data.id ?? '';
+  const recordOf = async (id) => JSON.parse(await fs.readFile(path.join(app.wiki, '.dashboard', 'conversations', 'operations', `${id}.json`), 'utf8'));
   const chat = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'What is this cluster about?' }), cookie));
-  const answer = chat.list.filter((e) => e.name === 'token').map((e) => e.data.text).join('');
+  const answer = tokensOf(chat);
   check('an answer arrives in pieces', chat.list.filter((e) => e.name === 'token').length > 1, `${chat.list.filter((e) => e.name === 'token').length} pieces`);
   check('the answer names its sources', /^SOURCES: \[\[/m.test(answer), answer.trim().split('\n').pop() ?? '');
   check('the answer says what was read', chat.list.some((e) => e.name === 'activity' && e.data.text === 'Reading index.md'));
   check('the answer ends cleanly', chat.list.at(-1)?.name === 'end', chat.list.at(-1)?.name ?? 'nothing');
-  const conversationId = chat.list.find((e) => e.name === 'session')?.data.id ?? '';
-  check('the answer names the conversation it starts', /^[0-9a-f-]{36}$/.test(conversationId), conversationId);
+  const conversationId = convOf(chat);
+  check('a first question starts a conversation the app keeps', /^[0-9a-f-]{36}$/.test(conversationId) && (await recordOf(conversationId)).turns.length === 1, conversationId);
+  check('the conversation is named by its first question', chat.list.at(-1)?.data.title === 'What is this cluster about?', chat.list.at(-1)?.data.title);
   const next = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And who logs it?', conversation: conversationId }), cookie));
-  const nextAnswer = next.list.filter((e) => e.name === 'token').map((e) => e.data.text).join('');
-  check('the next question builds on the last', nextAnswer.includes('Earlier you asked: "What is this cluster about?"') && next.list.find((e) => e.name === 'session')?.data.id === conversationId, nextAnswer.split('\n')[0]);
-  const gone = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Still there?', conversation: '11111111-2222-4333-8444-555555555555' }), cookie));
-  const goneSessions = gone.list.filter((e) => e.name === 'session').map((e) => e.data.id);
-  check('a conversation that is no longer there is started afresh', gone.list.some((e) => e.name === 'activity' && /no longer there/.test(e.data.text)) && gone.list.at(-1)?.name === 'end' && goneSessions.length === 2 && goneSessions[1] !== goneSessions[0], goneSessions.join(' > '));
+  const nextAnswer = tokensOf(next);
+  check('the next question builds on the last', nextAnswer.includes('Earlier you asked: "What is this cluster about?"') && convOf(next) === conversationId, nextAnswer.split('\n')[0]);
+  const conversationList = await (await fetch(`${base}/api/conversations?cluster=operations`, { headers: { cookie } })).json();
+  check('the conversations are listed, newest first', conversationList.conversations?.[0]?.id === conversationId && conversationList.conversations[0].turns === 2, JSON.stringify(conversationList.conversations?.[0]));
+  const reopenedPage = await (await fetch(`${base}/c/operations/ask/${conversationId}`, { headers: { cookie } })).text();
+  check('the conversation reopens from the server, on any browser', reopenedPage.includes('And who logs it?') && reopenedPage.includes('What is this cluster about?'));
+  const ask = await fetch(`${base}/c/operations/ask`, { headers: { cookie }, redirect: 'manual' });
+  check('Ask opens the newest conversation', [302, 303, 307, 308].includes(ask.status) && (ask.headers.get('location') ?? '').endsWith(conversationId), `${ask.status} ${ask.headers.get('location')}`);
+
+  // The binary forgets the conversation; the app picks it back up from its record.
+  const kept = await recordOf(conversationId);
+  await fs.rm(path.join(os.tmpdir(), 'fake-claude-sessions', `${kept.session.id}.json`), { force: true });
+  const picked = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Still with me?', conversation: conversationId }), cookie));
+  const after = await recordOf(conversationId);
+  check('a conversation the binary has forgotten is picked back up from the record', picked.list.some((e) => e.name === 'activity' && /back up/.test(e.data.text)) && tokensOf(picked).includes('Earlier you asked: "And who logs it?"') && after.session.id !== kept.session.id && after.turns.length === 3, tokensOf(picked).split('\n')[0]);
+  const unknown = await fetch(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'x', conversation: '11111111-2222-4333-8444-555555555555' }), cookie));
+  check('a conversation that is not there is 404, not a new one in disguise', unknown.status === 404, String(unknown.status));
   const nowhere = await fetch(`${base}/api/chat`, withCookie(json({ cluster: '../operations', question: 'x' }), cookie));
   check('a cluster name cannot climb out of the wiki', nowhere.status === 400, String(nowhere.status));
+
   const byHaiku = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Quickly: what is this?', model: 'haiku' }), cookie));
   check('a question can choose its model, and the answer says which one answered', byHaiku.list.at(-1)?.name === 'end' && byHaiku.list.at(-1)?.data.model === 'haiku', JSON.stringify(byHaiku.list.at(-1)?.data));
   const byDefault = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And by default?', model: 'gpt-9000' }), cookie));
   check('a model the app does not know means the server\'s default, not a refusal', byDefault.list.at(-1)?.name === 'end' && byDefault.list.at(-1)?.data.model === 'fake-claude', JSON.stringify(byDefault.list.at(-1)?.data));
   const switched2 = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Same conversation, other model?', conversation: conversationId, model: 'opus' }), cookie));
-  check('a conversation can change model between questions', switched2.list.find((e) => e.name === 'session')?.data.id === conversationId && switched2.list.at(-1)?.data.model === 'opus', JSON.stringify(switched2.list.at(-1)?.data));
+  check('a conversation can change model between questions', convOf(switched2) === conversationId && switched2.list.at(-1)?.data.model === 'opus', JSON.stringify(switched2.list.at(-1)?.data));
+
+  // Discuss cannot write, however it is asked; Work can, and it can be undone.
+  const notes = path.join(app.wiki, 'operations', 'queries');
+  const noteFiles = async () => (await fs.readdir(notes).catch(() => [])).filter((f) => f.startsWith('note-'));
+  const discussed = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Please write down that refunds take five days' }), cookie));
+  check('a question in Discuss writes nothing, however it is asked', discussed.list.at(-1)?.name === 'end' && (discussed.list.at(-1)?.data.wrote ?? []).length === 0 && (await noteFiles()).length === 0, JSON.stringify(discussed.list.at(-1)?.data.wrote));
+  const workId = convOf(discussed);
+  const worked = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Please write down that refunds take five days', conversation: workId, mode: 'work' }), cookie));
+  const end = worked.list.at(-1)?.data ?? {};
+  check('a question in Work writes the page, and the app says which', worked.list.at(-1)?.name === 'end' && (end.wrote ?? []).some((slug) => slug.startsWith('queries/note-')) && (await noteFiles()).length === 1, JSON.stringify(end));
+  check('what it wrote is one restore point', /^[0-9a-f]{7,40}$/.test(end.commit ?? ''), end.commit);
+  check('…checked as a filing is', Array.isArray(end.findings) && !end.findings.some((f) => f.severity === 'error'), JSON.stringify(end.findings));
+  const workRecord = await recordOf(workId);
+  check('the record keeps what each turn did', workRecord.turns.length === 2 && workRecord.turns[0].mode === 'discuss' && workRecord.turns[1].mode === 'work' && workRecord.turns[1].commit === end.commit && workRecord.mode === 'work');
+  const tree = await (await fetch(`${base}/api/search?cluster=operations&q=refunds%20take`, { headers: { cookie } })).text();
+  check('the page is in the wiki at once', tree.includes('note-') || (await noteFiles()).length === 1);
+  const undoRes = await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: 1 }), cookie));
+  check('a turn in Work can be undone', undoRes.status === 200 && (await noteFiles()).length === 0, String(undoRes.status));
+  check('…once', (await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: 1 }), cookie))).status === 409);
+  check('a turn that wrote nothing has nothing to undo', (await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: 0 }), cookie))).status === 409);
+
+  // Names, and deleting.
+  const renameRes = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: workId, title: 'Refund notes' }), method: 'PATCH' }, cookie));
+  check('a conversation can be renamed', renameRes.status === 200 && (await recordOf(workId)).title === 'Refund notes', String(renameRes.status));
+  const started = await fetch(`${base}/api/conversations`, withCookie(json({ cluster: 'operations' }), cookie));
+  const fresh = await started.json();
+  check('one can be started before the first question', started.status === 201 && /^[0-9a-f-]{36}$/.test(fresh.id ?? ''), String(started.status));
+  const removed = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: fresh.id }), method: 'DELETE' }, cookie));
+  check('and deleted', removed.status === 200 && !(await (await fetch(`${base}/api/conversations?cluster=operations`, { headers: { cookie } })).json()).conversations.some((c) => c.id === fresh.id), String(removed.status));
+  check('the conversations need a session', (await fetch(`${base}/api/conversations?cluster=operations`)).status === 401);
 
   // ------------------------------------- filed at once, discarded, undone
   const switched = await fetch(`${base}/api/clusters/settings`, withCookie(json({ cluster: 'operations', settings: { filing: 'automatic' } }), cookie));
@@ -519,7 +566,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 

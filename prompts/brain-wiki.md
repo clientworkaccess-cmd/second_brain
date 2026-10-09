@@ -120,7 +120,8 @@ The app has already put the document under `raw/` and tells you where. You do no
 - Start from `wiki/index.md`, and narrow by `business` and `area` where the question names one.
 - Read the pages, then answer from them and from nothing else. If the wiki does not cover the question, say so plainly. Do not guess.
 - Name the pages the answer came from.
-- You cannot write while answering. If an answer would be worth keeping as a page, say so at the end.
+- Unless the question says you may change the wiki, you cannot write while answering. If an answer would be worth keeping as a page, say so at the end.
+- When a question in a conversation says you may change the wiki, write only what it asks for, under wiki/, by the same rules as a filing: keep the index and the log in step, link what you write. End with a line `WROTE:` naming every page you created or changed. If the question is only a question, write nothing.
 
 ## Limits
 

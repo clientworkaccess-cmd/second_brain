@@ -2,13 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { SendHorizonal, MessageSquare, MessageSquarePlus, Square } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2 } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
 import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '@/lib/models';
 import { pageHref, resolveLink } from '@/lib/wikilinks';
+import { CONVERSATIONS_CHANGED } from '@/components/conversationEvents';
 
-interface Turn {
+type Mode = 'discuss' | 'work';
+
+interface Finding {
+  severity: 'error' | 'warning';
+  detail: string;
+}
+
+export interface ChatTurn {
   question: string;
   answer: string;
   sources: string[];
@@ -16,85 +25,77 @@ interface Turn {
   error?: string;
   /** What the agent is doing right now, e.g. "Reading index.md". Shown only while it works. */
   activity?: string;
+  mode?: Mode;
   /** The model asked for, and the one that answered as the binary reported it. */
   model?: string;
   answeredBy?: string | null;
+  /** Pages this turn created, changed or removed, by slug; and its restore point. */
+  wrote?: string[];
+  commit?: string | null;
+  undone?: boolean;
+  findings?: Finding[];
 }
+
+export interface ChatConversation {
+  id: string;
+  title: string;
+  mode: Mode;
+  model: string | null;
+  turns: ChatTurn[];
+}
+
 
 /**
- * Chat scoped to one cluster.
+ * One conversation with one wiki.
+ *
+ * What was said is kept by the server (lib/conversations.ts), so the thread is
+ * the same in every browser and after a reload. The agent remembers it too: it
+ * resumes the session it kept, or, when that is gone, is given a recap.
+ *
+ * Beside the question: Discuss (the agent reads, and cannot change anything)
+ * or Work (it may write pages, as a filing does; what it wrote is checked,
+ * kept as one restore point, and can be undone from here). And the model
+ * (lib/models.ts). Both are remembered with the conversation.
  *
  * Uses fetch + a stream reader rather than EventSource, because the question
- * has to go up in a POST body and EventSource is GET-only. The wire format is
- * still SSE, so it inherits the same proxy behaviour.
- *
- * The answer is rendered as it arrives, in the reading view's own typography,
- * and the pages it names become links.
- *
- * The questions are one conversation: the agent is given the id of the session
- * it kept, and remembers what was asked before. The conversation, and what was
- * said in it, stay for as long as the browser tab is. "New conversation"
- * starts afresh.
- *
- * The model is chosen beside the question (lib/models.ts) and remembered per
- * wiki; each answer says which model gave it.
+ * goes up in a POST body. The wire format is still SSE.
  */
-
-interface Kept {
-  conversation: string | null;
-  turns: Turn[];
-}
-
-function kept(cluster: string): Kept {
-  try {
-    const raw = sessionStorage.getItem(`sb-chat:${cluster}`);
-    if (!raw) return { conversation: null, turns: [] };
-    const parsed = JSON.parse(raw) as Kept;
-    // A question that was being answered when the tab went is over.
-    return { conversation: parsed.conversation ?? null, turns: (parsed.turns ?? []).filter((turn) => turn.done) };
-  } catch {
-    return { conversation: null, turns: [] };
-  }
-}
-
-function keep(cluster: string, value: Kept): void {
-  try {
-    sessionStorage.setItem(`sb-chat:${cluster}`, JSON.stringify(value));
-  } catch {
-    /* lasts for this page */
-  }
-}
 export function ChatPanel({
   cluster,
   hasPages,
   titles,
+  conversation,
 }: {
   cluster: string;
   hasPages: boolean;
   /** title -> slug, as pairs. A Map does not survive the trip from the server on every version of React. */
   titles: [string, string][];
+  conversation: ChatConversation | null;
 }) {
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [conversation, setConversation] = useState<string | null>(null);
+  const router = useRouter();
+  const [turns, setTurns] = useState<ChatTurn[]>(conversation?.turns ?? []);
+  const [id, setId] = useState<string | null>(conversation?.id ?? null);
+  const [title, setTitle] = useState<string>(conversation?.title ?? 'This conversation');
   const [question, setQuestion] = useState('');
   const [busy, setBusy] = useState(false);
-  const [model, setModel] = useState<ModelChoice['id']>(DEFAULT_MODEL);
+  const [mode, setMode] = useState<Mode>(conversation?.mode ?? 'discuss');
+  const [model, setModel] = useState<ModelChoice['id']>((conversation?.model as ModelChoice['id'] | null) ?? DEFAULT_MODEL);
+  const [undoing, setUndoing] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const known = useMemo(() => new Map(titles), [titles]);
+  const bySlug = useMemo(() => new Map(titles.map(([title, slug]) => [slug, title])), [titles]);
 
-  // What was said before the page was reloaded, back on screen; and the model chosen last time.
+  // A new conversation starts with the model chosen last time in this wiki.
   useEffect(() => {
-    const before = kept(cluster);
-    setConversation(before.conversation);
-    setTurns(before.turns);
+    if (conversation) return;
     try {
       const chosen = localStorage.getItem(`sb-chat-model:${cluster}`);
       if (chosen && MODELS.some((m) => m.id === chosen)) setModel(chosen as ModelChoice['id']);
     } catch {
       /* the default, then */
     }
-  }, [cluster]);
+  }, [cluster, conversation]);
   const chooseModel = (next: ModelChoice['id']): void => {
     setModel(next);
     try {
@@ -106,14 +107,15 @@ export function ChatPanel({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    if (turns.every((turn) => turn.done)) keep(cluster, { conversation, turns });
-  }, [turns, conversation, cluster]);
+  }, [turns]);
 
-  function startAfresh() {
+  const changed = (): void => {
+    window.dispatchEvent(new Event(CONVERSATIONS_CHANGED));
+  };
+
+  async function startAfresh() {
     if (busy) return;
-    setTurns([]);
-    setConversation(null);
-    keep(cluster, { conversation: null, turns: [] });
+    router.push(`/c/${cluster}/ask?new`);
   }
 
   async function ask() {
@@ -122,16 +124,18 @@ export function ChatPanel({
 
     setQuestion('');
     setBusy(true);
-    setTurns((t) => [...t, { question: text, answer: '', sources: [], done: false, model }]);
+    setTurns((t) => [...t, { question: text, answer: '', sources: [], done: false, mode, model }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
+    let wrote = false;
+    let startedId: string | null = null;
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster, question: text, conversation, model: modelChoice(model) }),
+        body: JSON.stringify({ cluster, question: text, conversation: id, model: modelChoice(model), mode }),
         signal: controller.signal,
       });
 
@@ -157,9 +161,10 @@ export function ChatPanel({
           const raw = frame.match(/^data: (.*)$/m)?.[1];
           if (!event || !raw) continue;
 
-          if (event === 'session') {
-            const { id } = JSON.parse(raw) as { id: string };
-            setConversation(id);
+          if (event === 'conversation') {
+            const { id: given } = JSON.parse(raw) as { id: string };
+            if (given !== id) startedId = given;
+            setId(given);
           } else if (event === 'token') {
             const { text: chunk } = JSON.parse(raw) as { text: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: turn.answer + chunk })));
@@ -172,8 +177,10 @@ export function ChatPanel({
             const { text: whole } = JSON.parse(raw) as { text: string };
             if (whole.trim()) setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: whole })));
           } else if (event === 'end') {
-            const { model: by } = JSON.parse(raw) as { model?: string | null };
-            setTurns((t) => patchLast(t, (turn) => ({ ...turn, answeredBy: by ?? null })));
+            const end = JSON.parse(raw) as { model?: string | null; title?: string; wrote?: string[]; commit?: string | null; findings?: Finding[] };
+            wrote = (end.wrote?.length ?? 0) > 0;
+            if (end.title) setTitle(end.title);
+            setTurns((t) => patchLast(t, (turn) => ({ ...turn, answeredBy: end.model ?? null, wrote: end.wrote ?? [], commit: end.commit ?? null, findings: end.findings ?? [] })));
           } else if (event === 'error') {
             const { message } = JSON.parse(raw) as { message: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, error: message, done: true })));
@@ -192,6 +199,32 @@ export function ChatPanel({
     } finally {
       setBusy(false);
       abortRef.current = null;
+      changed();
+      // A conversation that has just begun gets its own address, so a reload or a link reopens it.
+      if (startedId) window.history.replaceState(null, '', `/c/${cluster}/ask/${startedId}`);
+      // Pages changed: the tree, the graph and the page views read them again.
+      if (wrote) router.refresh();
+    }
+  }
+
+  async function undo(index: number) {
+    if (!id || undoing !== null) return;
+    setUndoing(index);
+    try {
+      const res = await fetch('/api/conversations/undo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cluster, id, turn: index }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? 'That could not be undone');
+      setTurns((t) => t.map((turn, i) => (i === index ? { ...turn, undone: true } : turn)));
+      changed();
+      router.refresh();
+    } catch (err) {
+      setTurns((t) => t.map((turn, i) => (i === index ? { ...turn, findings: [...(turn.findings ?? []), { severity: 'error', detail: err instanceof Error ? err.message : 'That could not be undone' }] } : turn)));
+    } finally {
+      setUndoing(null);
     }
   }
 
@@ -214,21 +247,22 @@ export function ChatPanel({
     );
   }
 
+  const pageName = (slug: string): string => bySlug.get(slug) ?? slug.split('/').pop() ?? slug;
+
   return (
     <div className="chat">
       <div className="chat-scroll">
         <div className="content space-y-7">
           {turns.length === 0 ? (
             <p className="max-w-prose text-body text-muted">
-              Ask anything this cluster covers. Answers come with the pages they were drawn from, so
-              you can read the source yourself rather than take the answer on trust. Each question
-              can build on the last.
+              Ask anything this wiki covers, and keep going: the conversation is kept, and the agent remembers what was said. Answers come with the pages
+              they were drawn from. Switch to <strong>Work</strong> to let it write pages as you go; every change it makes can be undone.
             </p>
           ) : (
             <div className="flex items-center gap-3">
-              <span className="section-title">This conversation</span>
+              <span className="section-title">{title}</span>
               <span className="statusbar-spacer" />
-              <Button variant="quiet" onClick={startAfresh} disabled={busy} title="Forget what was asked so far and start again">
+              <Button variant="quiet" onClick={startAfresh} disabled={busy} title="Start a new conversation; this one stays in the list">
                 <MessageSquarePlus size={14} />
                 New conversation
               </Button>
@@ -237,7 +271,14 @@ export function ChatPanel({
 
           {turns.map((turn, i) => (
             <section key={i}>
-              <h2 className="text-body font-semibold text-ink">{turn.question}</h2>
+              <h2 className="flex items-baseline gap-2 text-body font-semibold text-ink">
+                {turn.mode === 'work' && (
+                  <span className="chat-mode-tag" title="Asked in Work: it could change the wiki">
+                    Work
+                  </span>
+                )}
+                <span>{turn.question}</span>
+              </h2>
 
               <div className="mt-2">
                 {turn.error ? (
@@ -246,7 +287,7 @@ export function ChatPanel({
                   </p>
                 ) : turn.answer ? (
                   <div className="preview compact">
-                    <MarkdownView source={stripSources(turn.answer)} cluster={cluster} titles={known} />
+                    <MarkdownView source={stripTrailers(turn.answer)} cluster={cluster} titles={known} />
                   </div>
                 ) : (
                   <div className="space-y-2" aria-label="Waiting for the answer">
@@ -261,6 +302,41 @@ export function ChatPanel({
                 <p className="mt-2 text-small text-muted" aria-live="polite">
                   {turn.activity}…
                 </p>
+              )}
+
+              {(turn.wrote?.length ?? 0) > 0 && (
+                <div className={`chat-wrote${turn.undone ? ' undone' : ''}`}>
+                  <PenLine size={13} className="flex-none" />
+                  <span className="text-small">{turn.undone ? 'Undone:' : 'Changed:'}</span>
+                  {turn.wrote!.map((slug) =>
+                    turn.undone ? (
+                      <span key={slug} className="tag">
+                        {pageName(slug)}
+                      </span>
+                    ) : (
+                      <Link key={slug} href={pageHref(cluster, slug)} className="tag">
+                        {pageName(slug)}
+                      </Link>
+                    ),
+                  )}
+                  <span className="statusbar-spacer" />
+                  {turn.commit && !turn.undone && (
+                    <button type="button" className="graph-toggle" disabled={undoing !== null || busy} onClick={() => void undo(i)} title="Put these pages back as they were before this turn">
+                      <Undo2 size={13} />
+                      {undoing === i ? 'Undoing…' : 'Undo'}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {(turn.findings?.length ?? 0) > 0 && !turn.undone && (
+                <ul className="mt-2 space-y-0.5 text-small">
+                  {turn.findings!.slice(0, 6).map((f, k) => (
+                    <li key={k} className={f.severity === 'error' ? 'text-danger' : 'text-warning'}>
+                      {f.detail}
+                    </li>
+                  ))}
+                </ul>
               )}
 
               {turn.done && !turn.error && (turn.answeredBy || turn.model) && (
@@ -305,9 +381,25 @@ export function ChatPanel({
                 void ask();
               }
             }}
-            placeholder={`Ask something the ${cluster} cluster covers…`}
+            placeholder={mode === 'work' ? 'Ask, or say what to write down…' : `Ask something the ${cluster} wiki covers…`}
             aria-label="Your question"
           />
+          <div className="chat-mode" role="radiogroup" aria-label="Whether the agent may change the wiki">
+            {(['discuss', 'work'] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={mode === m}
+                className={mode === m ? 'active' : ''}
+                disabled={busy}
+                title={m === 'discuss' ? 'The agent reads and answers; it cannot change anything' : 'The agent may write pages when you ask it to; every change can be undone'}
+                onClick={() => setMode(m)}
+              >
+                {m === 'discuss' ? 'Discuss' : 'Work'}
+              </button>
+            ))}
+          </div>
           <select
             className="chat-model"
             aria-label="Which model answers"
@@ -323,7 +415,7 @@ export function ChatPanel({
             ))}
           </select>
           {busy ? (
-            <Button variant="ghost" onClick={() => abortRef.current?.abort()} aria-label="Stop">
+            <Button variant="ghost" onClick={() => abortRef.current?.abort()} aria-label="Stop" title={mode === 'work' ? 'Stops showing it; a turn that may write is let finish, and appears here when you come back' : 'Stop'}>
               <Square size={14} />
               Stop
             </Button>
@@ -339,21 +431,20 @@ export function ChatPanel({
   );
 }
 
-function patchLast(turns: Turn[], fn: (turn: Turn) => Turn): Turn[] {
+function patchLast(turns: ChatTurn[], fn: (turn: ChatTurn) => ChatTurn): ChatTurn[] {
   if (turns.length === 0) return turns;
   return [...turns.slice(0, -1), fn(turns[turns.length - 1])];
 }
 
 /** The prompt asks for a trailing `SOURCES: [[A]], [[B]]` line. Lift it out of
  *  the prose and render it as citations. */
-function finalise(turn: Turn): Turn {
+function finalise(turn: ChatTurn): ChatTurn {
   const match = turn.answer.match(/^SOURCES:\s*(.+)$/m);
-  const sources = match
-    ? [...match[1].matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1].trim())
-    : [];
+  const sources = match ? [...match[1].matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1].trim()) : turn.sources;
   return { ...turn, sources, done: true };
 }
 
-function stripSources(answer: string): string {
-  return answer.replace(/^SOURCES:.*$/m, '').trim();
+/** The SOURCES and WROTE lines are shown as links, not as text. */
+function stripTrailers(answer: string): string {
+  return answer.replace(/^(SOURCES|WROTE):.*$/gm, '').trim();
 }

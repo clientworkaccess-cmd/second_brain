@@ -1278,6 +1278,109 @@
   .chat-composer textarea:focus {
     border-color: var(--accent);
   }
+  /* Discuss or Work: whether the agent may change the wiki. */
+  .chat-mode {
+    display: inline-flex;
+    flex: none;
+    height: 32px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-primary);
+  }
+  .chat-mode button {
+    padding: 0 9px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: transparent;
+    border: 0;
+    border-radius: calc(var(--radius) - 2px);
+    cursor: pointer;
+  }
+  .chat-mode button.active {
+    color: var(--text-normal);
+    background: var(--bg-hover);
+  }
+  .chat-mode button.active:last-child {
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .chat-mode-tag {
+    flex: none;
+    padding: 0 6px;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--accent);
+    border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
+    border-radius: var(--radius);
+  }
+  /* What a turn in Work changed, with its undo. */
+  .chat-wrote {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    padding: 6px 8px;
+    color: var(--text-muted);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+  }
+  .chat-wrote.undone {
+    opacity: 0.6;
+    border-color: var(--border);
+    background: transparent;
+  }
+  /* The sidebar's list of conversations. */
+  .chat-row {
+    gap: 0;
+  }
+  .chat-row-link {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-width: 0;
+    height: 100%;
+    color: inherit;
+    text-decoration: none;
+  }
+  .chat-row-action {
+    display: none;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    color: var(--text-faint);
+    background: transparent;
+    border: 0;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .chat-row:hover .chat-row-action {
+    display: inline-flex;
+  }
+  .chat-row:hover .tree-count {
+    display: none;
+  }
+  .chat-row-action:hover {
+    color: var(--text-normal);
+    background: var(--bg-active);
+  }
+  .chat-rename input {
+    flex: 1;
+    margin-left: 20px;
+    padding: 2px 6px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-normal);
+    background: var(--bg-primary);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    outline: none;
+  }
   /* Which model answers: a small choice beside the question. */
   .chat-model {
     flex: none;

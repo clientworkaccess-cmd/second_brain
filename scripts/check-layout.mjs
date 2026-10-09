@@ -190,6 +190,16 @@ try {
     check(`in a brain, ${mode === 'plan' ? 'planning' : 'a question'} is allowed no more than in a cluster`, listAfter(agentArgs(mode, BRAIN), '--allowedTools').join() === listAfter(agentArgs(mode, CLUSTER), '--allowedTools').join());
   }
 
+  // ------------------------------------------------- a conversation that writes
+  const workArgs = agentArgs('work', CLUSTER);
+  check('a question in Work may write what a filing may, and no more', listAfter(workArgs, '--allowedTools').join() === listAfter(clusterArgs, '--allowedTools').join() && listAfter(agentArgs('work', BRAIN), '--allowedTools').join() === 'Edit(/wiki/**)');
+  check('…with the same tools as a filing', valueAfter(workArgs, '--tools') === valueAfter(clusterArgs, '--tools'));
+  check('…and every deny rule a filing has', listAfter(workArgs, '--disallowedTools').join() === listAfter(clusterArgs, '--disallowedTools').join());
+  check('a question in Discuss still has nothing to write with', !valueAfter(agentArgs('chat', CLUSTER), '--tools').includes('Edit') && !agentArgs('chat', CLUSTER).includes('--allowedTools'));
+  const conversation = { id: '11111111-2222-4333-8444-555555555555', resume: true };
+  check('a question in Work can be part of a conversation', valueAfter(agentArgs('work', CLUSTER, conversation), '--resume') === conversation.id);
+  check('a filing still cannot', (() => { try { agentArgs('execute', CLUSTER, conversation); return false; } catch { return true; } })());
+
   // ---------------------------------------------------------------- the model
   check('with no model chosen and none set, the binary picks', !agentArgs('chat', CLUSTER).includes('--model') && !agentArgs('chat', CLUSTER, null, null).includes('--model'));
   check('the model chosen for a question goes after --model', valueAfter(agentArgs('chat', CLUSTER, null, 'haiku'), '--model') === 'haiku');
