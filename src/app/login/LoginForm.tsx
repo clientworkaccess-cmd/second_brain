@@ -140,11 +140,10 @@ export function LoginForm({ captcha, reset }: { captcha: boolean; reset: boolean
     }
   }
 
-  /** With a ticket in hand: the first way that sends something, or the choice. */
+  /** With a ticket in hand: the choice of where the code goes, or straight to the authenticator when nothing sends. */
   async function opened(purpose: Purpose, ticket: string, methods: Offer[]) {
-    const first = methods.find((m) => m.kind !== 'totp');
-    if (first) await send(purpose, ticket, methods, first);
-    else go({ at: 'choose', purpose, ticket, methods });
+    if (methods.some((m) => m.kind !== 'totp')) go({ at: 'choose', purpose, ticket, methods });
+    else if (methods.length > 0) await send(purpose, ticket, methods, methods[0]);
   }
 
   /** Send a code one way and move to entering it. */
@@ -365,7 +364,8 @@ function Captcha({ onChange }: { onChange: (payload: string | null) => void }) {
 
 /** The subtle way to the other methods, the authenticator app among them. */
 function OtherWays({ step, open, setOpen, onPick, inline = false }: { step: Extract<Step, { at: 'choose' | 'code' }>; open: boolean; setOpen: (v: boolean) => void; onPick: (m: Offer) => void; inline?: boolean }) {
-  const others = step.methods.filter((m) => !(step.at === 'code' && m.kind === step.method));
+  // On the choice the ways that send are buttons already; only the authenticator is left.
+  const others = step.methods.filter((m) => (step.at === 'choose' ? m.kind === 'totp' : m.kind !== step.method));
   if (others.length === 0) return inline ? <span /> : null;
   return (
     <div className={inline ? 'relative text-right' : 'pt-1'}>
