@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogOut, Monitor, ShieldCheck, ShieldOff, X } from 'lucide-react';
-import { Badge, Button } from '@/components/ui';
+import { KeyRound, LogOut, Monitor, ShieldCheck, ShieldOff, X } from 'lucide-react';
+import { Badge, Button, Field, Input } from '@/components/ui';
 
 /**
  * Who is signed in, from where, since when; the second factor; and the trail
@@ -37,6 +37,10 @@ const SAID: Record<string, string> = {
   'sign-in-password': 'Password accepted, code pending',
   'sign-in-code-sent': 'Sign-in code sent',
   'sign-in-refused': 'Sign-in refused',
+  'password-reset-requested': 'Password reset asked for',
+  'password-reset': 'Password reset',
+  'password-changed': 'Password changed',
+  'password-refused': 'Password change refused',
   'sign-out': 'Signed out',
   'session-revoked': 'Session ended',
   'signed-out-everywhere': 'Signed out everywhere',
@@ -53,11 +57,96 @@ const SAID: Record<string, string> = {
   'image-added': 'Image added',
 };
 
-const WARY = new Set(['sign-in-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);
+const WARY = new Set(['sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);
 
 function when(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+}
+
+/**
+ * A new password, from the current one. Every browser is signed out by it,
+ * this one included, and this one is signed straight back in.
+ */
+function PasswordSection() {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [changed, setChanged] = useState(false);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (next !== again) {
+      setError('The two new passwords differ.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch('/api/auth/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current, password: next }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? 'That did not work');
+      setCurrent('');
+      setNext('');
+      setAgain('');
+      setOpen(false);
+      setChanged(true);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That did not work');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-labelledby="security-password">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 id="security-password" className="text-body font-semibold text-ink">
+          Password
+        </h2>
+        {!open && (
+          <Button variant="quiet" onClick={() => { setOpen(true); setChanged(false); }}>
+            <KeyRound size={14} />
+            Change password
+          </Button>
+        )}
+      </div>
+      {changed && !open && <p className="mt-2 text-ui text-success">Changed. Every other browser has been signed out.</p>}
+      {open ? (
+        <form onSubmit={submit} className="mt-2 max-w-sm space-y-3 rounded border border-line bg-panel px-3.5 py-3">
+          {error && (
+            <p role="alert" className="rounded border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-ui text-danger">
+              {error}
+            </p>
+          )}
+          <Field label="Current password">
+            <Input type="password" required autoFocus autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
+          </Field>
+          <Field label="New password" hint="At least 12 characters. Every other browser is signed out when it changes.">
+            <Input type="password" required minLength={12} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
+          </Field>
+          <Field label="The same again">
+            <Input type="password" required minLength={12} autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} />
+          </Field>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={busy}>
+              {busy ? 'Changing…' : 'Change it'}
+            </Button>
+            <Button type="button" variant="quiet" disabled={busy} onClick={() => { setOpen(false); setError(null); }}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : (
+        !changed && <p className="mt-2 text-ui text-muted">Forgotten on the sign-in page, it is reset with a code sent the same ways as a sign-in code.</p>
+      )}
+    </section>
+  );
 }
 
 /** "Chrome on Windows", from what the browser called itself. */
@@ -95,6 +184,8 @@ export function SecurityPanel({ sessions, trail, secondFactor }: { sessions: Ope
 
   return (
     <div className="mt-6 space-y-8">
+      <PasswordSection />
+
       <section aria-labelledby="security-factor">
         <h2 id="security-factor" className="text-body font-semibold text-ink">
           Second factor

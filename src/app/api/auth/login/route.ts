@@ -3,6 +3,7 @@ import { audit, clientOf } from '@/lib/audit';
 import { isValidCredentials, recordFailure, recordSuccess, retryAfter } from '@/lib/auth';
 import { captchaOn, verifyCaptcha } from '@/lib/captcha';
 import { authConfigured, secondFactorOn } from '@/lib/env-auth';
+import { currentPasswordHash } from '@/lib/sessions';
 import { openSignIn } from '@/lib/signin';
 import { signedIn } from '../session-response';
 
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Please complete the check and try again' }, { status: 400 });
   }
 
-  if (!isValidCredentials(typeof email === 'string' ? email : null, typeof password === 'string' ? password : null)) {
+  if (!isValidCredentials(typeof email === 'string' ? email : null, typeof password === 'string' ? password : null, await currentPasswordHash())) {
     recordFailure(client);
     await audit({ event: 'sign-in-refused', client, detail: 'wrong email or password' });
     return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });

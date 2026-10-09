@@ -534,10 +534,57 @@ try {
   const wrongApp = await signIn(guarded.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { method: 'totp', code: '000000' });
   check('a wrong app code is refused', wrongApp.res.status === 401 && !wrongApp.set, String(wrongApp.res.status));
   check('the session opens the app', (await fetch(`${guarded.base}/api/clusters`, { headers: { cookie: withApp.cookie } })).status === 200);
+  // ------------------------------------------------- a forgotten password
+  const resetServer = await start('scripts/fake-claude.mjs');
+  const rb = resetServer.base;
+  const ip = { 'x-forwarded-for': '198.51.100.12' };
+  const post = (p, body, extra = {}) => fetch(rb + p, { ...json(body), headers: { 'content-type': 'application/json', ...ip, ...extra } });
+  const before = await signIn(rb, PASSWORD, ip);
+  check('the login page offers a way back from a forgotten password', (await (await fetch(`${rb}/login`)).text()).includes('Forgot your password?'));
+  const noPuzzle = await post('/api/auth/reset', { email: EMAIL });
+  check('a reset needs the captcha first', noPuzzle.status === 400, String(noPuzzle.status));
+  const wrongAddress = await post('/api/auth/reset', { email: 'nobody@example.com', captcha: await solvedCaptcha(rb) });
+  check('a reset for another address is refused', wrongAddress.status === 401, String(wrongAddress.status));
+  const askedReset = await post('/api/auth/reset', { email: EMAIL.toUpperCase(), captcha: await solvedCaptcha(rb) });
+  const reset = await askedReset.json();
+  check('the sign-in address gets a reset ticket and the ways', askedReset.status === 200 && typeof reset.ticket === 'string' && reset.methods?.[0]?.kind === 'email', `${askedReset.status} ${JSON.stringify(reset.methods)}`);
+  check('a reset ticket cannot sign anyone in', (await post('/api/auth/verify', { ticket: reset.ticket, method: 'email', code: '000000' })).status === 401);
+  const sentReset = await post('/api/auth/code', { ticket: reset.ticket, method: 'email' });
+  const resetMail = await latestCode(resetServer, 'mail');
+  check('the reset code is emailed, and says it is a reset', sentReset.status === 200 && /^\d{6}$/.test(resetMail?.code ?? ''), String(sentReset.status));
+  const NEW_PASSWORD = `${PASSWORD}-changed`;
+  const weak = await post('/api/auth/reset/complete', { ticket: reset.ticket, method: 'email', code: resetMail.code, password: 'short' });
+  check('a short new password is refused before the code is spent', weak.status === 400, String(weak.status));
+  const wrongCode = await post('/api/auth/reset/complete', { ticket: reset.ticket, method: 'email', code: '000000', password: NEW_PASSWORD });
+  check('a wrong reset code is refused', wrongCode.status === 401 && !wrongCode.headers.get('set-cookie'), String(wrongCode.status));
+  const completed = await post('/api/auth/reset/complete', { ticket: reset.ticket, method: 'email', code: resetMail.code, password: NEW_PASSWORD });
+  const resetCookie = (completed.headers.get('set-cookie') ?? '').split(';')[0];
+  check('the right code with a new password signs in', completed.status === 200 && resetCookie.startsWith('brain_session='), String(completed.status));
+  check('the session from before the reset is ended', (await settles(rb, before.cookie, 401)) === 401);
+  check('the old password no longer signs in', (await signIn(rb, PASSWORD, ip)).res.status === 401);
+  check('the new one does', (await signIn(rb, NEW_PASSWORD, ip)).res.status === 200);
+  check('the same code is not taken twice', (await post('/api/auth/reset/complete', { ticket: reset.ticket, method: 'email', code: resetMail.code, password: NEW_PASSWORD })).status === 410);
+  // ---------------------------------------------------- a changed password
+  const signedOut = await post('/api/auth/password', { current: NEW_PASSWORD, password: `${NEW_PASSWORD}-again` });
+  check('changing the password needs a session', signedOut.status === 401, String(signedOut.status));
+  const wrongCurrent = await post('/api/auth/password', { current: PASSWORD, password: `${NEW_PASSWORD}-again` }, { cookie: resetCookie });
+  check('and the current password', wrongCurrent.status === 401, String(wrongCurrent.status));
+  const sameAgain = await post('/api/auth/password', { current: NEW_PASSWORD, password: NEW_PASSWORD }, { cookie: resetCookie });
+  check('the same password again is not a change', sameAgain.status === 400, String(sameAgain.status));
+  const changed = await post('/api/auth/password', { current: NEW_PASSWORD, password: `${NEW_PASSWORD}-again` }, { cookie: resetCookie });
+  const changedCookie = (changed.headers.get('set-cookie') ?? '').split(';')[0];
+  check('a changed password gives this browser a fresh session', changed.status === 200 && changedCookie.startsWith('brain_session=') && changedCookie !== resetCookie, String(changed.status));
+  check('and ends the one it had', (await settles(rb, resetCookie, 401)) === 401 && (await fetch(`${rb}/api/clusters`, { headers: { cookie: changedCookie } })).status === 200);
+  check('the changed password signs in', (await signIn(rb, `${NEW_PASSWORD}-again`, ip)).res.status === 200 && (await signIn(rb, NEW_PASSWORD, ip)).res.status === 401);
+  const resetTrail = (await fs.readFile(path.join(resetServer.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+  const trailKinds = new Set(resetTrail.map((e) => e.event));
+  check('the trail records the reset and the change, never a password', ['password-reset-requested', 'password-reset', 'password-changed', 'password-refused'].every((k) => trailKinds.has(k)) && !JSON.stringify(resetTrail).includes(NEW_PASSWORD), [...trailKinds].join(','));
+
   const plainServer = await start('scripts/fake-claude.mjs', { extraEnv: { CODE_CAPTURE_DIR: '', AUTH_CAPTCHA: 'off' } });
   const plain = await signIn(plainServer.base, PASSWORD, { 'x-forwarded-for': '198.51.100.9' }, { captcha: false });
   check('with nothing after the password set up and the captcha off, the password alone signs in', plain.res.status === 200 && plain.cookie.startsWith('brain_session='), String(plain.res.status));
   check('the login page then shows no captcha', !(await (await fetch(`${plainServer.base}/login`)).text()).includes('altcha-widget'));
+  check('with no way to send a code, there is no way back from a forgotten password on the page', !(await (await fetch(`${plainServer.base}/login`)).text()).includes('Forgot your password?') && (await fetch(`${plainServer.base}/api/auth/reset`, json({ email: EMAIL }))).status === 400);
 
   // ----------------------------------------------- when Claude is signed out
   const down = await start('scripts/fake-claude.mjs --fail auth');

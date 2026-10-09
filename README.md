@@ -181,7 +181,9 @@ sudo /opt/brain-app/deploy/deploy.sh
 ```
 
 Put the domain in `deploy/traefik-dynamic.yml` and copy it into Traefik's
-file-provider directory.
+file-provider directory; on a host that runs nginx, `deploy/nginx-brain.conf`
+instead, then `certbot --nginx` for the certificate (the file says how). The
+app needs HTTPS for its captcha.
 
 ## Updating
 
@@ -217,6 +219,21 @@ apart. With none of the three set up, the password alone signs in: a dev
 machine. Five wrong guesses of password or code block that address for a
 while. `CODE_CAPTURE_DIR` writes codes to a folder instead of sending them,
 for the checks; never set it on the server.
+
+The captcha needs HTTPS (or localhost): browsers only give a page the crypto
+it solves the puzzle with on a secure page. On plain HTTP it fails every time,
+so put the app behind the proxy with a certificate, or set `AUTH_CAPTCHA=off`
+until it is.
+
+The password is changed on the Security page, from the current one, or reset
+from "Forgot your password?" on the sign-in page: the address, the captcha,
+then a code the same ways as a sign-in code, and the new password with it.
+Either one ends every session there was. The new hash is kept in
+`.dashboard/auth.json`; from then on `AUTH_PASSWORD_HASH` in the env file is
+only the first password. To go back to the env one, remove `passwordHash`
+from that file and restart. With no way to send a code set up there is
+nothing to reset with, and the page does not offer it: run
+`npm run hash-password` on the server instead.
 
 A session lives in a signed cookie for thirty days. What the server keeps about
 sessions is in `<WIKI_ROOT>/.dashboard/auth.json`: which are open, which were

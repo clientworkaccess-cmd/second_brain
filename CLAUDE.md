@@ -57,7 +57,7 @@ runs, which loads no settings or instruction files from anywhere.
 - **Paths from env files are resolved against the checkout** (`APP_DIR`), not
   the working directory. The production server changes into `.next/standalone`
   before any of our code runs.
-- **Only the login, its steps (`/api/auth/captcha`, `code`, `verify`), the
+- **Only the login, its steps (`/api/auth/captcha`, `code`, `verify`, `reset`, `reset/complete`), the
   favicon, `/api/auth/state` and `/_next/static/` are public.** The image optimizer is off (`images.unoptimized`) and behind the
   login; the app has no images.
 - **Every route that changes something writes to the trail** (`audit()` in
@@ -147,7 +147,7 @@ the pure parser. `settings.ts` is what a person decided per wiki, in
 `.dashboard/settings/`, today whether a filing waits for approval. `jobs.ts` is the plan, approve, file pipeline with the per-cluster
 lock, the automatic path when a wiki files at once, and the undo; `sandbox.ts` makes the throwaway copy a plan runs in; `lint.ts` is the
 check after filing and the whole-wiki check (`checkWiki`); `git.ts` commits the cluster. `gate.ts`, `session.ts`,
-`auth.ts` are sign-in; `captcha.ts` the puzzle before it (ALTCHA, self-hosted), `signin.ts` the tickets and codes after the password, `mail.ts` and `sms.ts` how a code goes out (SMTP; GoHighLevel), `totp.ts` the authenticator, `sessions.ts` what is kept about sessions (`.dashboard/auth.json`: open, revoked, the epoch), `audit.ts` the trail (`.dashboard/audit.log`). `prompts/llm-wiki.md` and `prompts/brain-wiki.md` are
+`auth.ts` are sign-in; `captcha.ts` the puzzle before it (ALTCHA, self-hosted), `signin.ts` the tickets and codes after the password, `mail.ts` and `sms.ts` how a code goes out (SMTP; GoHighLevel), `totp.ts` the authenticator, `sessions.ts` what is kept about sessions (`.dashboard/auth.json`: open, revoked, the epoch, and the password hash once it has been changed or reset in the app, which then outranks `AUTH_PASSWORD_HASH`), `audit.ts` the trail (`.dashboard/audit.log`). `prompts/llm-wiki.md` and `prompts/brain-wiki.md` are
 what the agent is told about a cluster and about a brain. `scripts/fake-claude.mjs` is the stand-in; `scripts/fixtures/` holds
 streams captured from the real binary.
 
