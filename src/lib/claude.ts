@@ -32,7 +32,8 @@ import type { Layout } from './layout';
  *    credential this app is meant to run on.
  */
 
-export type AgentMode = 'plan' | 'execute' | 'chat';
+/** `work`: a question in a conversation that may change the wiki. It writes what a filing may write. */
+export type AgentMode = 'plan' | 'execute' | 'chat' | 'work';
 
 /**
  * A conversation: the one thing a run may keep.
@@ -85,6 +86,9 @@ function profile(mode: AgentMode, layout: Layout): { tools: string[]; allow: str
       return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
     case 'chat':
       return { tools: ['Read', 'Glob', 'Grep'], allow: [] };
+    // A conversation that may write writes exactly where a filing may, under the same deny rules.
+    case 'work':
+      return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
   }
 }
 
@@ -139,7 +143,7 @@ function fromRoot(absolute: string): string {
 /** The generated part of the command line. Exported so the check scripts can hold it against the real binary. */
 export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null, model: string | null = null): string[] {
   const { tools, allow } = profile(mode, layout);
-  if (conversation && (mode !== 'chat' || !CONVERSATION_ID.test(conversation.id))) {
+  if (conversation && ((mode !== 'chat' && mode !== 'work') || !CONVERSATION_ID.test(conversation.id))) {
     throw new Error('Only a question can be part of a conversation, and its id is a UUID');
   }
   return [

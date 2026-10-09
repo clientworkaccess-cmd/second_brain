@@ -103,6 +103,8 @@ export const ORIGINALS_DIR = path.join(DASHBOARD_DIR, 'originals');
 export const TRANSCRIPTS_DIR = path.join(DASHBOARD_DIR, 'transcripts');
 /** What a person decided about each wiki, such as whether a filing waits for approval. See lib/settings.ts. */
 export const SETTINGS_DIR = path.join(DASHBOARD_DIR, 'settings');
+/** Conversations with each wiki, every question and answer. See lib/conversations.ts. */
+export const CONVERSATIONS_DIR = path.join(DASHBOARD_DIR, 'conversations');
 
 /** Hard ceiling on a single ingest before we give up and mark the job failed. */
 export const INGEST_TIMEOUT_MS = Number(process.env.INGEST_TIMEOUT_MS ?? 15 * 60 * 1000);
@@ -114,7 +116,7 @@ export const INGEST_TIMEOUT_MS = Number(process.env.INGEST_TIMEOUT_MS ?? 15 * 60
  */
 export const PLAN_TIMEOUT_MS = Number(process.env.PLAN_TIMEOUT_MS ?? 10 * 60 * 1000);
 
-/** One question, one answer. */
+/** One question, one answer. A question that writes gets the budget of a filing. */
 export const CHAT_TIMEOUT_MS = Number(process.env.CHAT_TIMEOUT_MS ?? 5 * 60 * 1000);
 
 const CLUSTER_NAME = /^[a-z0-9_-]+$/;

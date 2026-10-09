@@ -151,6 +151,24 @@ export function isBusy(cluster: string): string | null {
 }
 
 /**
+ * Claim a wiki for writing: a filing, an undo, or a conversation turn that may
+ * write. Synchronous on purpose, so nothing can slip in between the test and
+ * the claim. Throws 409 when someone else holds it.
+ */
+export function acquireBusy(cluster: string, owner: string): void {
+  const held = busy.get(cluster);
+  if (held && held !== owner) {
+    throw new HttpError(409, 'This cluster is already being written to. Wait for it to finish.');
+  }
+  busy.set(cluster, owner);
+}
+
+/** Let the wiki go, if this owner still holds it. */
+export function releaseBusy(cluster: string, owner: string): void {
+  if (busy.get(cluster) === owner) busy.delete(cluster);
+}
+
+/**
  * A restart kills any spawned agent with it, so a job still marked planning or
  * executing on boot is dead. Mark those so the UI can say "interrupted" instead
  * of streaming a progress bar that will never move.
@@ -346,11 +364,7 @@ async function startExecution(job: Job, approved: Plan): Promise<void> {
   // `snapshot()` below yields, and anything that yields between testing the
   // lock and taking it is not a lock: two clicks, or two tabs, would both read
   // it free and both start writing. Released again on every path that refuses.
-  const held = busy.get(job.cluster);
-  if (held && held !== job.id) {
-    throw new HttpError(409, 'This cluster is already being written to. Wait for it to finish.');
-  }
-  busy.set(job.cluster, job.id);
+  acquireBusy(job.cluster, job.id);
 
   try {
     // The plan describes a wiki as it looked when the plan was made. If another
@@ -390,11 +404,7 @@ export async function undoFiling(jobId: string): Promise<Job> {
   }
   if (!job.commit) throw new HttpError(409, 'This filing was not committed, so there is nothing to revert. Restore the pages by hand.');
 
-  const held = busy.get(job.cluster);
-  if (held && held !== job.id) {
-    throw new HttpError(409, 'This cluster is already being written to. Wait for it to finish.');
-  }
-  busy.set(job.cluster, job.id);
+  acquireBusy(job.cluster, job.id);
   try {
     const layout = await layoutOf(job.cluster);
     job.undoCommit = await revertCommit(job.cluster, job.commit, `Undo the filing of ${job.filename}`, layout);

@@ -35,7 +35,11 @@ export type AuditEvent =
   | 'page-saved'
   | 'page-renamed'
   | 'page-deleted'
-  | 'image-added';
+  | 'image-added'
+  | 'conversation-started'
+  | 'conversation-wrote'
+  | 'conversation-undone'
+  | 'conversation-deleted';
 
 export interface AuditEntry {
   at: string;

@@ -112,7 +112,11 @@ async function fingerprintsUnder(
   }
 }
 
-export async function lintAfterIngest(cluster: string, before: Before): Promise<LintResult> {
+/**
+ * `kind`: a filing, or a conversation turn that was allowed to write. A turn
+ * that wrote nothing is a turn that only answered, and is not remarked on.
+ */
+export async function lintAfterIngest(cluster: string, before: Before, kind: 'ingest' | 'turn' = 'ingest'): Promise<LintResult> {
   const { layout } = before;
   const findings: Finding[] = [];
   const indexName = indexFile(layout);
@@ -132,7 +136,7 @@ export async function lintAfterIngest(cluster: string, before: Before): Promise<
   // 1. Did anything get written at all? An agent that read the source and
   //    decided nothing was worth filing is a legitimate outcome, but the user
   //    must see it as such rather than as a silent success.
-  if (changed.size === 0) {
+  if (changed.size === 0 && kind === 'ingest') {
     findings.push({
       code: 'no-pages-written',
       severity: 'warning',
@@ -170,11 +174,11 @@ export async function lintAfterIngest(cluster: string, before: Before): Promise<
   }
 
   // 4. The log must gain an entry.
-  if (log === before.log) {
+  if (log === before.log && (kind === 'ingest' || changed.size > 0)) {
     findings.push({
       code: 'log-not-updated',
       severity: 'warning',
-      detail: `${logName} did not gain an entry for this ingest. The record of what changed and when is incomplete.`,
+      detail: `${logName} did not gain an entry for this ${kind === 'ingest' ? 'ingest' : 'conversation turn'}. The record of what changed and when is incomplete.`,
     });
   }
 

@@ -21,6 +21,7 @@ import type { SearchHit } from '@/lib/search';
 import type { Listing, PageRef } from '@/lib/wiki';
 import { pageHref } from '@/lib/wikilinks';
 import { NewPageButton } from '@/components/NewPageButton';
+import { ChatsPanel } from '@/components/ChatsPanel';
 
 /**
  * The left sidebar. In a cluster it is the page tree and the search, as in the
@@ -60,11 +61,15 @@ function passes(page: PageRef, filters: Filters): boolean {
 
 export function PageSidebar({ cluster, listing }: { cluster: string; listing: Listing }) {
   const pathname = decodeURIComponent(usePathname());
-  const [panel, setPanel] = useState<'pages' | 'search'>('pages');
+  const [panel, setPanel] = useState<'pages' | 'search' | 'chats'>('pages');
   const [collapsed, setCollapsed] = useState<Set<string>>(
     () => new Set(listing.total > MANY_PAGES ? listing.folders.map((f) => f.dir) : []),
   );
   const home = `/c/${cluster}`;
+  const onAsk = pathname.startsWith(`${home}/ask`);
+  useEffect(() => {
+    if (onAsk) setPanel('chats');
+  }, [onAsk]);
   // The index is the front page of the wiki. It is listed first among the pages beside it.
   const beside = [...listing.root].sort((a, b) => Number(b.slug === 'index') - Number(a.slug === 'index'));
 
@@ -119,11 +124,14 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
         <button type="button" className={`panel-tab${panel === 'search' ? ' active' : ''}`} onClick={() => setPanel('search')}>
           Search
         </button>
+        <button type="button" className={`panel-tab${panel === 'chats' ? ' active' : ''}`} onClick={() => setPanel('chats')} title="Your conversations with this wiki">
+          Chats
+        </button>
         <span className="statusbar-spacer" />
         <Link className={`icon-button${pathname === `${home}/graph` ? ' active' : ''}`} href={`${home}/graph`} title="Graph view">
           <Waypoints size={16} />
         </Link>
-        <Link className={`icon-button${pathname === `${home}/ask` ? ' active' : ''}`} href={`${home}/ask`} title="Ask a question">
+        <Link className={`icon-button${pathname.startsWith(`${home}/ask`) ? ' active' : ''}`} href={`${home}/ask`} title="Ask a question">
           <MessageSquare size={16} />
         </Link>
         <Link className={`icon-button${pathname === `${home}/check` ? ' active' : ''}`} href={`${home}/check`} title="Check the wiki against its rules">
@@ -152,7 +160,9 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
       )}
 
       <div className="sidebar-body">
-        {panel === 'search' ? (
+        {panel === 'chats' ? (
+          <ChatsPanel cluster={cluster} pathname={pathname} />
+        ) : panel === 'search' ? (
           <SearchPanel cluster={cluster} listing={listing} filters={filters} />
         ) : (
           <nav className="tree" aria-label="Pages">

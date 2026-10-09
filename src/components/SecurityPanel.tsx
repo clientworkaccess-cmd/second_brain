@@ -55,9 +55,13 @@ const SAID: Record<string, string> = {
   'page-renamed': 'Page renamed',
   'page-deleted': 'Page deleted',
   'image-added': 'Image added',
+  'conversation-started': 'Conversation started',
+  'conversation-wrote': 'Conversation changed pages',
+  'conversation-undone': 'Conversation change undone',
+  'conversation-deleted': 'Conversation deleted',
 };
 
-const WARY = new Set(['sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);
+const WARY = new Set(['conversation-undone', 'conversation-deleted', 'sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);
 
 function when(iso: string): string {
   const d = new Date(iso);
