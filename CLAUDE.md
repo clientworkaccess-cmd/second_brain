@@ -125,7 +125,7 @@ embed. `src/lib/rename.ts` renames a page (title, file name, every link to
 it, the index) and deletes one (its index line too), each with a restore
 point; `POST /api/page/rename` and `DELETE /api/page` are the routes, and
 `PageActions.tsx` the two buttons in the status bar. `src/lib/models.ts` lists the models a question can choose (Claude Code's aliases; the chat route passes one as `--model`, the server's `CLAUDE_MODEL` otherwise). `src/lib/localGraph.ts`
-cuts one page's neighbourhood out of the graph (pure); `LocalGraph.tsx` draws
+cuts one page's neighbourhood out of the graph (pure); `src/lib/graphFilter.ts` keeps what the viewer hides (folders, pages beside the index, typed patterns) out of the drawing (pure, remembered per wiki in the browser); `LocalGraph.tsx` draws
 it in the panel beside the page with the same engine, and `src/graph/palette.ts`
 holds what both graph views hand the engine.
 

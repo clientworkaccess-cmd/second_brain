@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Maximize2 } from 'lucide-react';
+import { EyeOff, Maximize2 } from 'lucide-react';
 import type { Graph } from '@/lib/graph';
+import { hideFrom, NOTHING_HIDDEN, parsePatterns, type Hidden } from '@/lib/graphFilter';
 import { areaHues, areaStats, groupHues } from '@/graph/data';
 import { readPalette, toData } from '@/graph/palette';
 import { WebGLGraph } from '@/graph/webglGraph';
@@ -19,6 +20,10 @@ import { WebGLGraph } from '@/graph/webglGraph';
  * pie, each value gathers its pages around a place of its own, a soft disc is
  * drawn behind each, and a row of the legend highlights one and dims the rest.
  *
+ * Under "Hide", whole folders, single pages beside the index and typed
+ * patterns are kept out of the drawing (lib/graphFilter.ts), remembered per
+ * wiki like the grouping.
+ *
  * The layout and the data are separate (lib/graph.ts); this file turns the
  * one into what the engine takes, and owns the header and the legend.
  */
@@ -29,8 +34,11 @@ const FOLDERS = 'folders';
 const colourOf = (hue: number | undefined, dark: boolean): string =>
   hue === undefined ? 'var(--text-faint)' : `hsl(${Math.round(hue)}, 62%, ${dark ? 64 : 42}%)`;
 
-export function GraphView({ graph, cluster }: { graph: Graph; cluster: string }) {
+export function GraphView({ graph: whole, cluster }: { graph: Graph; cluster: string }) {
   const router = useRouter();
+  const [hidden, setHidden] = useState<Hidden>(NOTHING_HIDDEN);
+  const [hiding, setHiding] = useState(false);
+  const graph = useMemo(() => hideFrom(whole, hidden), [whole, hidden]);
   const hostRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<WebGLGraph | null>(null);
   const hrefs = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n.href])), [graph]);
@@ -50,6 +58,28 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
       /* the default, then */
     }
   }, [cluster, graph.facets]);
+  useEffect(() => {
+    try {
+      const kept = localStorage.getItem(`sb-graph-hidden:${cluster}`);
+      if (kept) {
+        const parsed = JSON.parse(kept) as Partial<Hidden>;
+        const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+        setHidden({ folders: strings(parsed.folders), pages: strings(parsed.pages), patterns: strings(parsed.patterns) });
+      }
+    } catch {
+      /* nothing hidden, then */
+    }
+  }, [cluster]);
+  const hide = (next: Hidden): void => {
+    setHidden(next);
+    setFocus(null);
+    try {
+      localStorage.setItem(`sb-graph-hidden:${cluster}`, JSON.stringify(next));
+    } catch {
+      /* lasts for this page */
+    }
+  };
+  const hiddenCount = whole.nodes.length - graph.nodes.length;
   const chooseMode = (next: string): void => {
     setMode(next);
     setFocus(null);
@@ -143,7 +173,7 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
     : graph.kinds.filter(({ kind }) => kind !== 'missing').map(({ kind, label }) => ({ key: kind, label, hue: folderHues.get(kind), count: counts.get(kind) ?? 0 }));
 
   return (
-    <div className="graph-pane">
+    <div className="graph-pane" onKeyDown={(e) => { if (e.key === 'Escape' && hiding) setHiding(false); }}>
       <div className="graph-header">
         <span className="sidebar-title">Graph</span>
         <span className="muted small">
@@ -169,6 +199,16 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
             ))}
           </>
         )}
+        <button
+          type="button"
+          className={`graph-toggle${hiddenCount > 0 ? ' active' : ''}`}
+          aria-expanded={hiding}
+          title="Keep folders or pages out of the drawing"
+          onClick={() => setHiding(!hiding)}
+        >
+          <EyeOff size={14} />
+          <span>Hide{hiddenCount > 0 ? ` · ${hiddenCount}` : ''}</span>
+        </button>
         <button type="button" className="graph-toggle" title="Fit the whole graph in the pane" onClick={() => engineRef.current?.zoomToFit()}>
           <Maximize2 size={14} />
           <span>Fit</span>
@@ -177,6 +217,8 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
 
       <div className="graph-body">
         <div ref={hostRef} className="graph-host" role="img" aria-label={`${written} pages and ${graph.links.length} links in ${cluster}`} />
+
+        {hiding && <HidePanel whole={whole} hidden={hidden} onChange={hide} onClose={() => setHiding(false)} />}
 
         <div className={`graph-legend${facet ? ' interactive' : ''}`}>
           {legend.map(({ key, label, hue, count }) =>
@@ -217,6 +259,71 @@ export function GraphView({ graph, cluster }: { graph: Graph; cluster: string })
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What to keep out of the drawing: a box per folder, a box per page beside
+ * the index, and a line for patterns. Nothing here changes the wiki.
+ */
+function HidePanel({ whole, hidden, onChange, onClose }: { whole: Graph; hidden: Hidden; onChange: (next: Hidden) => void; onClose: () => void }) {
+  const [text, setText] = useState(hidden.patterns.join(', '));
+  const folders = whole.kinds.filter((k) => k.kind !== 'missing' && k.kind !== 'root');
+  const rootPages = whole.nodes.filter((n) => n.kind === 'root').sort((a, b) => a.label.localeCompare(b.label));
+  const toggle = (list: string[], value: string): string[] => (list.includes(value) ? list.filter((v) => v !== value) : [...list, value]);
+  const count = (kind: string): number => whole.nodes.filter((n) => n.kind === kind).length;
+  const nothing = hidden.folders.length === 0 && hidden.pages.length === 0 && hidden.patterns.length === 0;
+
+  return (
+    <div className="graph-filter" role="dialog" aria-label="Hide from the graph">
+      <div className="graph-filter-head">
+        <span>Hide from the graph</span>
+        <button type="button" className="graph-toggle" disabled={nothing} onClick={() => { setText(''); onChange(NOTHING_HIDDEN); }}>
+          Show all
+        </button>
+        <button type="button" className="graph-toggle" onClick={onClose}>
+          Done
+        </button>
+      </div>
+      {folders.length > 0 && (
+        <fieldset className="graph-filter-group">
+          <legend>Folders</legend>
+          {folders.map((f) => (
+            <label key={f.kind} className="graph-filter-row">
+              <input type="checkbox" checked={hidden.folders.includes(f.kind)} onChange={() => onChange({ ...hidden, folders: toggle(hidden.folders, f.kind) })} />
+              <span className="graph-legend-label">{f.label}</span>
+              <span className="graph-legend-count">{count(f.kind)}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      {rootPages.length > 0 && (
+        <fieldset className="graph-filter-group">
+          <legend>Pages beside the index</legend>
+          {rootPages.map((n) => (
+            <label key={n.id} className="graph-filter-row">
+              <input type="checkbox" checked={hidden.pages.includes(n.id)} onChange={() => onChange({ ...hidden, pages: toggle(hidden.pages, n.id) })} />
+              <span className="graph-legend-label">{n.label}</span>
+            </label>
+          ))}
+        </fieldset>
+      )}
+      <fieldset className="graph-filter-group">
+        <legend>Patterns</legend>
+        <input
+          type="text"
+          className="graph-filter-input"
+          placeholder="sources/, overview, *meeting*"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => onChange({ ...hidden, patterns: parsePatterns(text) })}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onChange({ ...hidden, patterns: parsePatterns(text) });
+          }}
+        />
+        <p className="graph-filter-hint">A slug or a title; a folder with a slash after it; * for anything. Commas between.</p>
+      </fieldset>
     </div>
   );
 }
