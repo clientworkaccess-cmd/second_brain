@@ -120,22 +120,6 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
           Search
         </button>
         <span className="statusbar-spacer" />
-        {panel === 'pages' && (
-          <>
-            <Link className="icon-button" href={home} title="Add a document">
-              <FilePlus size={16} />
-            </Link>
-            <NewPageButton cluster={cluster} folders={listing.folders.map(({ dir, label }) => ({ dir, label }))} />
-            <button
-              type="button"
-              className="icon-button"
-              title="Collapse all"
-              onClick={() => setCollapsed(new Set(listing.folders.map((f) => f.dir)))}
-            >
-              <ChevronsDownUp size={16} />
-            </button>
-          </>
-        )}
         <Link className={`icon-button${pathname === `${home}/graph` ? ' active' : ''}`} href={`${home}/graph`} title="Graph view">
           <Waypoints size={16} />
         </Link>
@@ -149,6 +133,23 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
           <FolderOpen size={16} />
         </Link>
       </div>
+
+      {panel === 'pages' && (
+        <div className="sidebar-actions">
+          <Link className="icon-button" href={home} title="Add a document">
+            <FilePlus size={16} />
+          </Link>
+          <NewPageButton cluster={cluster} folders={listing.folders.map(({ dir, label }) => ({ dir, label }))} />
+          <button
+            type="button"
+            className="icon-button"
+            title="Collapse all"
+            onClick={() => setCollapsed(new Set(listing.folders.map((f) => f.dir)))}
+          >
+            <ChevronsDownUp size={16} />
+          </button>
+        </div>
+      )}
 
       <div className="sidebar-body">
         {panel === 'search' ? (

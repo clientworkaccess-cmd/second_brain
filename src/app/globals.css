@@ -107,6 +107,16 @@
   .sidebar-header.tabs {
     padding-left: 6px;
     gap: 2px;
+    overflow: hidden;
+  }
+  .sidebar-actions {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 2px;
+    height: 32px;
+    padding: 0 6px;
+    border-bottom: 1px solid var(--border);
   }
   .sidebar-title {
     flex: 1;
