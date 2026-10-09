@@ -29,6 +29,7 @@ process.env.AUTH_CODE_PHONE = '+1 (518) 555-0168';
 process.env.AUTH_TOTP_SECRET = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
 const captureDir = await (await import('node:fs/promises')).mkdtemp((await import('node:path')).join((await import('node:os')).tmpdir(), 'brain-codes-'));
 process.env.CODE_CAPTURE_DIR = captureDir;
+process.env.WIKI_ROOT = captureDir;
 
 await compileLib();
 const lib = (name) => pathToFileURL(path.join(OUT_DIR, `${name}.js`)).href;
@@ -52,7 +53,7 @@ const check = (name, pass, detail = '') => {
 const PROTECTED = [
   '/', '/new', '/c/ops', '/c/ops/graph', '/c/ops/ask', '/c/ops/entities/warehouse-team',
   '/api/clusters', '/api/upload', '/api/chat', '/api/jobs/abc', '/api/pipeline/plan', '/api/pipeline/execute',
-  '/api/pipeline/reject', '/api/pipeline/undo', '/api/auth/logout', '/api/search', '/api/clusters/settings', '/api/page', '/api/auth/sessions', '/security', '/api/asset', '/api/assets', '/api/asset?cluster=ops&path=raw%2Fassets%2Fa.png', '/api/page/rename', '/api/auth/captcha/', '/api/auth/verify/x', '/api/auth/codes',
+  '/api/pipeline/reject', '/api/pipeline/undo', '/api/auth/logout', '/api/search', '/api/clusters/settings', '/api/page', '/api/auth/sessions', '/security', '/api/asset', '/api/assets', '/api/asset?cluster=ops&path=raw%2Fassets%2Fa.png', '/api/page/rename', '/api/auth/captcha/', '/api/auth/verify/x', '/api/auth/codes', '/api/auth/password', '/api/auth/reset/', '/api/auth/reset/x', '/api/auth/resets',
   // A dot in a path says nothing about what the path is.
   '/api/clusters.json', '/api/x.json', '/c/a.b', '/c/ops/entities/page.md', '/new.html', '/.env', '/api/auth/login.php',
   // Near misses of the public paths.
@@ -67,6 +68,7 @@ check('nothing protected gets through without a session', leaks.length === 0, le
 check('API routes answer 401, pages go to the login', gate('/api/clusters', false) === 'unauthorized' && gate('/c/ops', false) === 'to-login');
 check('the login page and its endpoint are reachable', gate('/login', false) === 'allow' && gate('/api/auth/login', false) === 'allow');
 check('the sign-in steps are reachable without a session', ['/api/auth/captcha', '/api/auth/code', '/api/auth/verify'].every((p) => gate(p, false) === 'allow'));
+check('a forgotten password can be reset without a session, and changed only with one', ['/api/auth/reset', '/api/auth/reset/complete'].every((p) => gate(p, false) === 'allow') && gate('/api/auth/password', false) === 'unauthorized');
 check('the epoch and the revoked ids are reachable, for the middleware', gate('/api/auth/state', false) === 'allow' && gate('/api/auth/state/', false) !== 'allow' && gate('/api/auth/states', false) !== 'allow');
 check('build output is reachable', isPublicPath('/_next/static/chunks/main.js') && isPublicPath('/favicon.ico'));
 check('the app’s mark is reachable, so the login page can show it', isPublicPath('/icon.png'));
@@ -174,6 +176,30 @@ check('the authenticator needs no sending and signs in', signin.verifySignInCode
 check('an authenticator code is taken once', !signin.verifySignInCode(signin.openSignIn('10.0.0.9').ticket, 'totp', appCode));
 check('a ticket nobody opened is 410', (() => { try { signin.verifySignInCode('nope', 'email', '123456'); return null; } catch (err) { return err.status; } })() === 410);
 check('an expired ticket is 410', (() => { const t = signin.openSignIn('10.0.0.9', 0); try { signin.verifySignInCode(t.ticket, 'email', '123456', 11 * 60 * 1000); return null; } catch (err) { return err.status; } })() === 410);
+// ------------------------------------------------------- a forgotten password
+const resetTicket = signin.openSignIn('10.0.0.9', Date.now(), 'reset');
+await signin.sendSignInCode(resetTicket.ticket, 'email');
+const resetMail = JSON.parse(await fsp.readFile(`${captureDir}/${(await codeFiles()).filter((f) => f.startsWith('mail-')).pop()}`, 'utf8'));
+const resetCode = resetMail.text.match(/\b(\d{6})\b/)[1];
+check('a reset code says what it is for', /reset/i.test(resetMail.subject) && /reset/i.test(resetMail.text) && !/someone has your password/.test(resetMail.text), resetMail.subject.replace(/\d{6}/, '……'));
+check('a reset code cannot sign anyone in', !signin.verifySignInCode(resetTicket.ticket, 'email', resetCode));
+check('but it does reset, once', signin.verifySignInCode(resetTicket.ticket, 'email', resetCode, Date.now(), 'reset') && spent(() => signin.verifySignInCode(resetTicket.ticket, 'email', resetCode, Date.now(), 'reset')) === 410);
+const signInTicket = signin.openSignIn('10.0.0.9');
+await signin.sendSignInCode(signInTicket.ticket, 'email');
+const signInCode = JSON.parse(await fsp.readFile(`${captureDir}/${(await codeFiles()).filter((f) => f.startsWith('mail-')).pop()}`, 'utf8')).text.match(/\b(\d{6})\b/)[1];
+check('a sign-in code cannot reset the password', !signin.verifySignInCode(signInTicket.ticket, 'email', signInCode, Date.now(), 'reset'));
+check('a new password has to be twelve characters, trimmed', auth.passwordProblem('short') !== null && auth.passwordProblem(' twelve chars ok') !== null && auth.passwordProblem(null) !== null && auth.passwordProblem('a'.repeat(201)) !== null && auth.passwordProblem('twelve chars ok') === null);
+const sessions = await import(lib('sessions'));
+sessions.forgetSessions();
+check('until it is changed, the password is the one from the env file', (await sessions.currentPasswordHash()) === process.env.AUTH_PASSWORD_HASH);
+const epochBefore = await sessions.currentEpoch();
+const newHash = auth.hashPassword('a new password for the check');
+const epochAfter = await sessions.setPasswordHash(newHash);
+check('a new password is kept, and every session ends with it', (await sessions.currentPasswordHash()) === newHash && epochAfter === epochBefore + 1 && (await sessions.listSessions()).length === 0);
+sessions.forgetSessions();
+check('the new password survives a restart', (await sessions.currentPasswordHash()) === newHash && auth.isValidCredentials('someone@example.com', 'a new password for the check', await sessions.currentPasswordHash()) && !auth.isValidCredentials('someone@example.com', PASSWORD, await sessions.currentPasswordHash()));
+const authFile = JSON.parse(await fsp.readFile(`${captureDir}/.dashboard/auth.json`, 'utf8'));
+check('what is kept is the hash, never the password', authFile.passwordHash === newHash && !JSON.stringify(authFile).includes('a new password for the check'));
 await fsp.rm(captureDir, { recursive: true, force: true }).catch(() => {});
 
 // ------------------------------------------------------------- the password

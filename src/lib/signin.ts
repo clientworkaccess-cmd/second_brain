@@ -16,6 +16,8 @@ import { matchTotp } from './totp';
  */
 
 export type Method = 'email' | 'sms' | 'totp';
+/** What a ticket is for. A reset ticket cannot sign anyone in, and a sign-in ticket cannot change the password. */
+export type Purpose = 'sign-in' | 'reset';
 
 export interface MethodOffer {
   kind: Method;
@@ -24,6 +26,7 @@ export interface MethodOffer {
 }
 
 interface Ticket {
+  purpose: Purpose;
   client: string;
   expires: number;
   method: Method | null;
@@ -60,10 +63,10 @@ export function methodsOffered(): MethodOffer[] {
 }
 
 /** After the password: a ticket for the rest of the sign-in. */
-export function openSignIn(client: string, now: number = Date.now()): { ticket: string; methods: MethodOffer[] } {
+export function openSignIn(client: string, now: number = Date.now(), purpose: Purpose = 'sign-in'): { ticket: string; methods: MethodOffer[] } {
   sweep(now);
   const ticket = randomBytes(18).toString('base64url');
-  tickets.set(ticket, { client, expires: now + TICKET_MS, method: null, codeHash: null, codeExpires: 0, attempts: 0, sentAt: [] });
+  tickets.set(ticket, { purpose, client, expires: now + TICKET_MS, method: null, codeHash: null, codeExpires: 0, attempts: 0, sentAt: [] });
   return { ticket, methods: methodsOffered() };
 }
 
@@ -91,19 +94,24 @@ export async function sendSignInCode(id: unknown, method: unknown, now: number =
   t.attempts = 0;
   t.sentAt.push(now);
 
-  const text = `${code} is your Second Brain sign-in code. It lasts 10 minutes. If you did not ask for it, someone has your password: change it.`;
-  if (offer.kind === 'email') await sendMail({ to: AUTH_CODE_EMAIL, subject: `${code} is your Second Brain code`, text });
+  const reset = t.purpose === 'reset';
+  const text = reset
+    ? `${code} is your Second Brain password reset code. It lasts 10 minutes. If you did not ask to reset the password, ignore this: nothing changes without the code.`
+    : `${code} is your Second Brain sign-in code. It lasts 10 minutes. If you did not ask for it, someone has your password: change it.`;
+  if (offer.kind === 'email') await sendMail({ to: AUTH_CODE_EMAIL, subject: `${code} is your Second Brain ${reset ? 'reset code' : 'code'}`, text });
   else await sendSms(AUTH_CODE_PHONE, text);
   return { to: offer.to };
 }
 
 /**
- * The code, checked. True signs in: the ticket is spent. False counts as an
+ * The code, checked, for a ticket opened for `purpose`. True signs in (or, for a
+ * reset, lets the password change): the ticket is spent. False counts as an
  * attempt; after the fifth the ticket is spent too, and the throttle in the
  * route sees the failure like a wrong password.
  */
-export function verifySignInCode(id: unknown, method: unknown, code: unknown, now: number = Date.now()): boolean {
+export function verifySignInCode(id: unknown, method: unknown, code: unknown, now: number = Date.now(), purpose: Purpose = 'sign-in'): boolean {
   const t = ticketOf(id, now);
+  if (t.purpose !== purpose) return fail(id as string, t);
   const given = typeof code === 'string' ? code.replace(/\s+/g, '') : '';
   if (!/^\d{6}$/.test(given)) return fail(id as string, t);
 

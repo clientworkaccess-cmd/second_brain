@@ -48,13 +48,29 @@ export function verifyPassword(password: string, stored: string): boolean {
   }
 }
 
-export function isValidCredentials(email?: string | null, password?: string | null): boolean {
+/** Whether the address is the sign-in address. */
+export function isSignInEmail(email: unknown): boolean {
+  return typeof email === 'string' && email !== '' && safeEqual(email.trim().toLowerCase(), AUTH_EMAIL);
+}
+
+/** `hash` is the one in force: the env value, or the one set in the app (sessions.ts knows which). */
+export function isValidCredentials(email?: string | null, password?: string | null, hash: string = AUTH_PASSWORD_HASH): boolean {
   if (typeof email !== 'string' || typeof password !== 'string' || !email || !password) return false;
   // Both halves are always evaluated, so a wrong email costs the same time as
   // a wrong password.
-  const emailOk = safeEqual(email.trim().toLowerCase(), AUTH_EMAIL);
-  const passwordOk = verifyPassword(password, AUTH_PASSWORD_HASH);
+  const emailOk = isSignInEmail(email);
+  const passwordOk = verifyPassword(password, hash);
   return emailOk && passwordOk;
+}
+
+export const MIN_PASSWORD_LENGTH = 12;
+
+/** Why a new password will not do, or null when it will. The same rule as `npm run hash-password`. */
+export function passwordProblem(password: unknown): string | null {
+  if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) return `Use at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (password.length > 200) return 'That is longer than a password needs to be.';
+  if (password.trim() !== password) return 'No spaces at the start or the end.';
+  return null;
 }
 
 function safeEqual(a: string, b: string): boolean {

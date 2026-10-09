@@ -1,14 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { DASHBOARD_DIR } from './config';
-import { SESSION_MAX_AGE_S } from './env-auth';
+import { AUTH_PASSWORD_HASH, SESSION_MAX_AGE_S } from './env-auth';
 
 /**
  * What is kept about sessions: which are open, which were revoked, and the
  * epoch that "sign out everywhere" moves on.
  *
  * In memory, written through to .dashboard/auth.json, so that a restart keeps
- * the epoch and the revocations. Read by the login route and the Security
+ * the epoch, the revocations and a password changed in the app. Read by the login route and the Security
  * page in Node; the middleware asks /api/auth/state for the epoch and the
  * revoked ids and keeps them for a few seconds.
  */
@@ -27,6 +27,8 @@ interface AuthState {
   epoch: number;
   revoked: string[];
   sessions: SessionRecord[];
+  /** Set once the password has been changed or reset in the app; until then AUTH_PASSWORD_HASH is the password. */
+  passwordHash?: string;
 }
 
 const FILE = path.join(DASHBOARD_DIR, 'auth.json');
@@ -47,6 +49,7 @@ async function load(): Promise<AuthState> {
           revoked: Array.isArray(parsed.revoked) ? parsed.revoked.map(String) : [],
           sessions: Array.isArray(parsed.sessions) ? (parsed.sessions as SessionRecord[]) : [],
         };
+        if (typeof parsed.passwordHash === 'string' && parsed.passwordHash.startsWith('scrypt:')) state.passwordHash = parsed.passwordHash;
       } catch {
         /* the first start, or a file nobody can read: the defaults */
       }
@@ -113,6 +116,26 @@ export async function revokeSession(id: string): Promise<void> {
 /** Every session there is, refused from now on: the epoch moves on. Returns the new epoch. */
 export async function revokeAll(): Promise<number> {
   const state = await load();
+  state.epoch += 1;
+  state.revoked = [];
+  state.sessions = [];
+  await save(state);
+  return state.epoch;
+}
+
+/** The hash the password is checked against: the one set in the app, or else the one from the env file. */
+export async function currentPasswordHash(): Promise<string> {
+  return (await load()).passwordHash ?? AUTH_PASSWORD_HASH;
+}
+
+/**
+ * A new password. Every session there is ends with it, this one included:
+ * whoever changed the password gets a fresh session from the route that did
+ * it, and anyone else who was signed in has to prove they know the new one.
+ */
+export async function setPasswordHash(hash: string): Promise<number> {
+  const state = await load();
+  state.passwordHash = hash;
   state.epoch += 1;
   state.revoked = [];
   state.sessions = [];
