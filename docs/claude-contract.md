@@ -36,7 +36,7 @@ claude -p \
   [--model <the alias chosen for the question, else $CLAUDE_MODEL>]
 ```
 
-A question in a conversation runs as `chat` (Read, Glob, Grep; nothing allowed) or, in Work, as `work`: the tools and allow rules of `execute` (`Edit(/**)` in a cluster, `Edit(/wiki/**)` in a brain) under the same deny rules, with `--session-id`/`--resume` instead of `--no-session-persistence`. A `work` turn holds the wiki's lock, is checked with the after-filing check, and is committed as one restore point.
+A question in a conversation runs as `chat` (Read, Glob, Grep; nothing allowed) or, in Work, as `work`: the tools and allow rules of `execute` (`Edit(/**)` in a cluster, `Edit(/wiki/**)` in a brain) under the same deny rules, with `--session-id`/`--resume` instead of `--no-session-persistence`. A `work` turn holds the wiki's lock, is checked with the after-filing check, and is committed as one restore point. Before it runs, the app writes the conversation under `raw/` as the turn's source document and names it in the prompt; the agent still cannot write under `raw/`.
 
 | Part | Why it is there |
 |---|---|

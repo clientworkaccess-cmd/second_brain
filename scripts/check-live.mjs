@@ -497,6 +497,7 @@ try {
   // Discuss cannot write, however it is asked; Work can, and it can be undone.
   const notes = path.join(app.wiki, 'operations', 'queries');
   const noteFiles = async () => (await fs.readdir(notes).catch(() => [])).filter((f) => f.startsWith('note-'));
+  const keptSources = async () => (await fs.readdir(path.join(app.wiki, 'operations', 'raw')).catch(() => [])).filter((f) => f.includes('-conversation-'));
   const discussed = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Please write down that refunds take five days' }), cookie));
   check('a question in Discuss writes nothing, however it is asked', discussed.list.at(-1)?.name === 'end' && (discussed.list.at(-1)?.data.wrote ?? []).length === 0 && (await noteFiles()).length === 0, JSON.stringify(discussed.list.at(-1)?.data.wrote));
   const workId = convOf(discussed);
@@ -504,6 +505,11 @@ try {
   const end = worked.list.at(-1)?.data ?? {};
   check('a question in Work writes the page, and the app says which', worked.list.at(-1)?.name === 'end' && (end.wrote ?? []).some((slug) => slug.startsWith('queries/note-')) && (await noteFiles()).length === 1, JSON.stringify(end));
   check('what it wrote is one restore point', /^[0-9a-f]{7,40}$/.test(end.commit ?? ''), end.commit);
+  check('a question in Discuss keeps no source', !(await recordOf(workId)).turns[0].source);
+  const keptNow = await keptSources();
+  const keptText = keptNow.length === 1 ? await fs.readFile(path.join(app.wiki, 'operations', 'raw', keptNow[0]), 'utf8') : '';
+  check('the conversation was kept as a source for it to write from', /^raw\/\d{4}-\d\d-\d\d-conversation-[a-z0-9-]+\.md$/.test(end.source ?? '') && keptNow.length === 1 && end.source === `raw/${keptNow[0]}`, `${end.source} ${JSON.stringify(keptNow)}`);
+  check('…with what the reader said in it', keptText.includes('Please write down that refunds take five days') && keptText.includes('## The reader') && !/SOURCES:/.test(keptText));
   check('…checked as a filing is', Array.isArray(end.findings) && !end.findings.some((f) => f.severity === 'error'), JSON.stringify(end.findings));
   const workRecord = await recordOf(workId);
   check('the record keeps what each turn did', workRecord.turns.length === 2 && workRecord.turns[0].mode === 'discuss' && workRecord.turns[1].mode === 'work' && workRecord.turns[1].commit === end.commit && workRecord.mode === 'work');
@@ -513,6 +519,10 @@ try {
   check('a turn in Work can be undone', undoRes.status === 200 && (await noteFiles()).length === 0, String(undoRes.status));
   check('…once', (await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: 1 }), cookie))).status === 409);
   check('a turn that wrote nothing has nothing to undo', (await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: 0 }), cookie))).status === 409);
+  check('undoing takes the source away with the pages', (await keptSources()).length === 0, JSON.stringify(await keptSources()));
+  const quiet = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And what is this cluster about?', conversation: workId, mode: 'work' }), cookie));
+  const quietEnd = quiet.list.at(-1)?.data ?? {};
+  check('a question in Work that writes nothing leaves no source and no restore point', quiet.list.at(-1)?.name === 'end' && (quietEnd.wrote ?? []).length === 0 && !quietEnd.source && !quietEnd.commit && (await keptSources()).length === 0, JSON.stringify(quietEnd));
 
   // Names, and deleting.
   const renameRes = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: workId, title: 'Refund notes' }), method: 'PATCH' }, cookie));

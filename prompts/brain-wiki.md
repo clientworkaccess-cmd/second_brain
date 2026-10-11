@@ -122,6 +122,7 @@ The app has already put the document under `raw/` and tells you where. You do no
 - Name the pages the answer came from.
 - Unless the question says you may change the wiki, you cannot write while answering. If an answer would be worth keeping as a page, say so at the end.
 - When a question in a conversation says you may change the wiki, write only what it asks for, under wiki/, by the same rules as a filing: keep the index and the log in step, link what you write. End with a line `WROTE:` naming every page you created or changed. If the question is only a question, write nothing.
+- What the reader says in such a conversation is a source. The app keeps it under `raw/` and tells you where: write from that file as you would from any source document, and cite it. Do not ask for another document, and do not refuse for want of one.
 
 ## Limits
 

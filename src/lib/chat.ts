@@ -26,11 +26,23 @@ export function chatPrompt(question: string, layout: Layout): string {
  * as above, and writes only when the question asks it to; what it writes the
  * app checks and commits afterwards, as it does a filing.
  */
-export function workPrompt(question: string, layout: Layout): string {
+export function workPrompt(question: string, layout: Layout, source: string | null = null): string {
   const example = layout.links === 'slug' ? '[[page-file-name]]' : '[[Page Name]]';
   return [
     chatPrompt(question, layout),
     ``,
+    // What the reader says here is something to write from. The app has kept it
+    // where sources are kept, because the wiki's rules ask for a source and the
+    // agent may not write there itself.
+    ...(source
+      ? [
+          `What has been said in this conversation is a source, and the app has kept it for you at ${source}.`,
+          `What the reader said there is first-hand, like a note or an email from them. You may write the wiki from it:`,
+          `treat that file as the source document, exactly as in a filing, and cite it the way this wiki cites its sources.`,
+          `No other document is needed, and none is missing. The answer above may draw on it as well as on the pages.`,
+          ``,
+        ]
+      : []),
     `In this conversation you may change the wiki. Do so only when the question asks for it: to write something down,`,
     `add a page, or change one. If the question is only a question, answer it and write nothing.`,
     `When you write, follow the wiki's rules as a filing does: keep ${indexFile(layout)} and ${logFile(layout)} in step.`,
