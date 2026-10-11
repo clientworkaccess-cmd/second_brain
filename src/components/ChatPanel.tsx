@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2 } from 'lucide-react';
+import { AudioLines, Mic, SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2, Volume2 } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
 import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '@/lib/models';
 import { pageHref, resolveLink } from '@/lib/wikilinks';
 import { CONVERSATIONS_CHANGED } from '@/components/conversationEvents';
+import { useVoice } from '@/components/useVoice';
+import { joinDictation } from '@/lib/speech';
 
 type Mode = 'discuss' | 'work';
 
@@ -57,6 +59,11 @@ export interface ChatConversation {
  * kept as one restore point, and can be undone from here). And the model
  * (lib/models.ts). Both are remembered with the conversation.
  *
+ * Voice, where the browser has it (components/useVoice.ts): the microphone
+ * dictates into the question box; an answer can be read aloud; and "Talk" is
+ * a conversation by voice: speak, pause, hear the answer, speak again. The
+ * speech is the browser's own, not Claude's.
+ *
  * Uses fetch + a stream reader rather than EventSource, because the question
  * goes up in a POST body. The wire format is still SSE.
  */
@@ -83,6 +90,22 @@ export function ChatPanel({
   const [undoing, setUndoing] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  /** What was in the box when the microphone opened; dictation is added to it. */
+  const typedRef = useRef('');
+  const askRef = useRef<(said?: string) => void>(() => {});
+  const voice = useVoice({
+    onDictation: (settled, unsettled) => setQuestion(joinDictation(typedRef.current, `${settled} ${unsettled}`)),
+    onUtterance: (said) => askRef.current(said),
+  });
+
+  // The box grows with what is in it, up to a few lines, then scrolls.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    box.style.height = 'auto';
+    box.style.height = `${Math.min(box.scrollHeight, 220)}px`;
+  }, [question]);
   const known = useMemo(() => new Map(titles), [titles]);
   const bySlug = useMemo(() => new Map(titles.map(([title, slug]) => [slug, title])), [titles]);
 
@@ -118,9 +141,11 @@ export function ChatPanel({
     router.push(`/c/${cluster}/ask?new`);
   }
 
-  async function ask() {
-    const text = question.trim();
+  async function ask(said?: string) {
+    const text = (said ?? question).trim();
     if (!text || busy) return;
+    // The microphone closes while the answer comes; in a conversation it opens again after it is said.
+    voice.beginAnswer();
 
     setQuestion('');
     setBusy(true);
@@ -168,6 +193,7 @@ export function ChatPanel({
           } else if (event === 'token') {
             const { text: chunk } = JSON.parse(raw) as { text: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, answer: turn.answer + chunk })));
+            voice.feed(chunk);
           } else if (event === 'activity') {
             const { text: doing } = JSON.parse(raw) as { text: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, activity: doing })));
@@ -184,6 +210,7 @@ export function ChatPanel({
           } else if (event === 'error') {
             const { message } = JSON.parse(raw) as { message: string };
             setTurns((t) => patchLast(t, (turn) => ({ ...turn, error: message, done: true })));
+            voice.feed('\nSorry, that did not work.\n');
           }
         }
       }
@@ -195,8 +222,11 @@ export function ChatPanel({
       } else {
         const message = err instanceof Error ? err.message : 'Something went wrong';
         setTurns((t) => patchLast(t, (turn) => ({ ...turn, error: message, done: true })));
+        voice.feed('\nSorry, that did not work.\n');
       }
     } finally {
+      // In a conversation: say what is left of the answer, then listen again.
+      voice.finishAnswer();
       setBusy(false);
       abortRef.current = null;
       changed();
@@ -246,6 +276,13 @@ export function ChatPanel({
       </div>
     );
   }
+
+  askRef.current = (said) => void ask(said);
+  const talking = voice.phase !== 'off';
+  const stop = (): void => {
+    abortRef.current?.abort();
+    if (talking) voice.interrupt();
+  };
 
   const pageName = (slug: string): string => bySlug.get(slug) ?? slug.split('/').pop() ?? slug;
 
@@ -339,10 +376,24 @@ export function ChatPanel({
                 </ul>
               )}
 
-              {turn.done && !turn.error && (turn.answeredBy || turn.model) && (
-                <p className="mt-2 text-small text-faint" title={turn.answeredBy ?? undefined}>
-                  {familyOf(turn.answeredBy) ?? MODELS.find((m) => m.id === turn.model)?.label}
-                  {turn.model && turn.model !== 'default' && familyOf(turn.answeredBy) && familyOf(turn.answeredBy)?.toLowerCase() !== turn.model ? ` (asked for ${MODELS.find((m) => m.id === turn.model)?.label})` : ''}
+              {turn.done && !turn.error && (turn.answeredBy || turn.model || (voice.canSpeak && turn.answer)) && (
+                <p className="mt-2 flex items-center gap-2 text-small text-faint">
+                  {voice.canSpeak && turn.answer && !talking && (
+                    <button
+                      type="button"
+                      className={`chat-read${voice.reading === String(i) ? ' active' : ''}`}
+                      aria-pressed={voice.reading === String(i)}
+                      title={voice.reading === String(i) ? 'Stop reading' : 'Read this answer aloud'}
+                      onClick={() => (voice.reading === String(i) ? voice.stopReading() : voice.read(String(i), turn.answer))}
+                    >
+                      {voice.reading === String(i) ? <Square size={12} /> : <Volume2 size={13} />}
+                      <span>{voice.reading === String(i) ? 'Stop' : 'Read aloud'}</span>
+                    </button>
+                  )}
+                  <span title={turn.answeredBy ?? undefined}>
+                    {familyOf(turn.answeredBy) ?? MODELS.find((m) => m.id === turn.model)?.label}
+                    {turn.model && turn.model !== 'default' && familyOf(turn.answeredBy) && familyOf(turn.answeredBy)?.toLowerCase() !== turn.model ? ` (asked for ${MODELS.find((m) => m.id === turn.model)?.label})` : ''}
+                  </span>
                 </p>
               )}
 
@@ -371,7 +422,33 @@ export function ChatPanel({
 
       <div className="chat-composer">
         <div className="chat-composer-inner">
+          {talking && (
+            <div className="chat-voice" aria-live="polite">
+              <span className={`chat-voice-dot ${voice.phase}`} />
+              <span className="chat-voice-text">
+                {voice.phase === 'listening' ? voice.heard || 'Listening. Speak, then pause.' : voice.phase === 'thinking' ? 'Thinking…' : 'Speaking…'}
+              </span>
+              <span className="statusbar-spacer" />
+              {voice.phase !== 'listening' && (
+                <button type="button" className="graph-toggle" onClick={stop} title="Stop the answer and listen again">
+                  Interrupt
+                </button>
+              )}
+              <button type="button" className="graph-toggle" onClick={voice.stopConversation} title="End the conversation by voice">
+                End
+              </button>
+            </div>
+          )}
+          {voice.error && (
+            <p role="alert" className="chat-voice-error">
+              {voice.error}
+              <button type="button" onClick={voice.clearError} aria-label="Dismiss">
+                ×
+              </button>
+            </p>
+          )}
           <textarea
+            ref={boxRef}
             rows={1}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
@@ -384,6 +461,7 @@ export function ChatPanel({
             placeholder={mode === 'work' ? 'Ask, or say what to write down…' : `Ask something the ${cluster} wiki covers…`}
             aria-label="Your question"
           />
+          <div className="chat-composer-row">
           <div className="chat-mode" role="radiogroup" aria-label="Whether the agent may change the wiki">
             {(['discuss', 'work'] as const).map((m) => (
               <button
@@ -414,17 +492,51 @@ export function ChatPanel({
               </option>
             ))}
           </select>
+          <span className="statusbar-spacer" />
+          {voice.canListen && (
+            <button
+              type="button"
+              className={`chat-voice-button${voice.dictating ? ' active' : ''}`}
+              aria-pressed={voice.dictating}
+              aria-label={voice.dictating ? 'Stop dictating' : 'Dictate'}
+              title={voice.dictating ? 'Stop dictating' : 'Dictate: speak, and it is typed into the box'}
+              disabled={busy || talking}
+              onClick={() => {
+                if (voice.dictating) voice.stopDictation();
+                else {
+                  typedRef.current = question;
+                  voice.startDictation();
+                }
+              }}
+            >
+              <Mic size={15} />
+            </button>
+          )}
+          {voice.canListen && voice.canSpeak && (
+            <button
+              type="button"
+              className={`chat-voice-button wide${talking ? ' active' : ''}`}
+              aria-pressed={talking}
+              title={talking ? 'End the conversation by voice' : 'Talk: speak, pause, and hear the answer; then speak again'}
+              disabled={busy && !talking}
+              onClick={() => (talking ? voice.stopConversation() : voice.startConversation())}
+            >
+              <AudioLines size={15} />
+              <span>{talking ? 'End' : 'Talk'}</span>
+            </button>
+          )}
           {busy ? (
-            <Button variant="ghost" onClick={() => abortRef.current?.abort()} aria-label="Stop" title={mode === 'work' ? 'Stops showing it; a turn that may write is let finish, and appears here when you come back' : 'Stop'}>
+            <Button variant="ghost" onClick={stop} aria-label="Stop" title={mode === 'work' ? 'Stops showing it; a turn that may write is let finish, and appears here when you come back' : 'Stop'}>
               <Square size={14} />
               Stop
             </Button>
           ) : (
-            <Button onClick={ask} disabled={!question.trim()} aria-label="Ask">
+            <Button onClick={() => void ask()} disabled={!question.trim()} aria-label="Ask">
               <SendHorizonal size={15} />
               Ask
             </Button>
           )}
+          </div>
         </div>
       </div>
     </div>
