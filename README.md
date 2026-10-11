@@ -403,6 +403,18 @@ last such source and the question asked now. The agent is told where it is and
 writes from it. A turn that writes nothing leaves no such file, and undoing a
 turn takes its source away with its pages.
 
+**Voice.** Where the browser has speech (Chrome, Edge and Safari; not
+Firefox), the question box has a microphone and a Talk button, and each
+answer a "Read aloud". The microphone dictates into the box. Talk is a
+conversation by voice: speak, pause, and the question is sent; the answer is
+said a sentence at a time while it is still arriving; then the microphone
+opens again. It is closed while the app speaks, so it does not hear itself;
+Interrupt stops the answer and listens. The speech is the browser's own (the
+Web Speech API): the app sends nothing anywhere and needs no key, though
+Chrome has its own service turn speech into text. It is not Claude's voice;
+Claude Code has none. It needs HTTPS, like the captcha, and the reader's
+leave to use the microphone.
+
 **A question chooses its model.** Beside the question: Default (what the
 server is set to in `CLAUDE_MODEL`, or Claude Code's own), Opus, Sonnet or
 Haiku, by Claude Code's aliases, so each follows the newest of its family.
