@@ -1256,15 +1256,25 @@
   }
   .chat-composer-inner {
     display: flex;
-    align-items: flex-end;
+    flex-direction: column;
     gap: 8px;
     max-width: var(--content-width);
     margin: 0 auto;
     padding: 10px 24px;
   }
+  /* Under the question: what kind of turn, which model, the microphone, and Ask. */
+  .chat-composer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
   .chat-composer textarea {
-    flex: 1;
-    max-height: 160px;
+    width: 100%;
+    min-height: 34px;
+    max-height: 220px;
+    overflow-y: auto;
+    line-height: 1.45;
     padding: 6px 10px;
     font: inherit;
     font-size: 14px;
@@ -1276,6 +1286,119 @@
     resize: none;
   }
   .chat-composer textarea:focus {
+    border-color: var(--accent);
+  }
+  /* Voice: the microphone, Talk, and where a conversation by voice is in its round. */
+  .chat-voice-button {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 32px;
+    min-width: 32px;
+    padding: 0 8px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--text-muted);
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .chat-voice-button:hover:not(:disabled) {
+    color: var(--text-normal);
+    border-color: var(--text-faint);
+  }
+  .chat-voice-button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .chat-voice-button.active {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+  .chat-voice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text-normal);
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
+  .chat-voice-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chat-voice-dot {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--text-faint);
+  }
+  .chat-voice-dot.listening {
+    background: var(--accent);
+    animation: chat-voice-pulse 1.4s ease-in-out infinite;
+  }
+  .chat-voice-dot.thinking {
+    background: var(--text-muted);
+    animation: chat-voice-pulse 0.9s ease-in-out infinite;
+  }
+  .chat-voice-dot.speaking {
+    background: var(--accent);
+  }
+  @keyframes chat-voice-pulse {
+    50% {
+      opacity: 0.35;
+      transform: scale(0.8);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .chat-voice-dot {
+      animation: none !important;
+    }
+  }
+  .chat-voice-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0;
+    padding: 5px 10px;
+    font-size: 12px;
+    color: var(--text-normal);
+    border: 1px solid color-mix(in srgb, var(--danger) 50%, var(--border));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+  }
+  .chat-voice-error button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    cursor: pointer;
+  }
+  .chat-read {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    font: inherit;
+    color: var(--text-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer;
+  }
+  .chat-read:hover,
+  .chat-read.active {
+    color: var(--accent);
     border-color: var(--accent);
   }
   /* Discuss or Work: whether the agent may change the wiki. */
