@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import { audit, clientOf, sessionLabel } from '@/lib/audit';
 import { CHAT_TIMEOUT_MS, HttpError, INGEST_TIMEOUT_MS, assertClusterName, clusterPath } from '@/lib/config';
 import { exists } from '@/lib/clusters';
@@ -8,6 +10,7 @@ import { agentFailure, runClaude, type AgentRun } from '@/lib/claude';
 import {
   appendTurn,
   beginTurn,
+  conversationSource,
   createConversation,
   endTurn,
   isConversationId,
@@ -21,7 +24,7 @@ import { SESSION_COOKIE } from '@/lib/env-auth';
 import { commitCluster, ensureRepo } from '@/lib/git';
 import { acquireBusy, releaseBusy } from '@/lib/jobs';
 import { layoutOf, type Layout } from '@/lib/layout';
-import { beforeIngest, lintAfterIngest } from '@/lib/lint';
+import { beforeIngest, lintAfterIngest, sourceFingerprints } from '@/lib/lint';
 import { modelChoice } from '@/lib/models';
 import { sseResponse } from '@/lib/sse';
 import { forgetWiki, snapshot, type Snapshot } from '@/lib/wiki';
@@ -43,7 +46,10 @@ export const runtime = 'nodejs';
  * phrased, and it runs beside anything else. Work: the agent may write where a
  * filing may. Then the turn holds the wiki as a filing does, the wiki is
  * checked afterwards as a filing is, and what it wrote is committed as one
- * restore point that the reader can undo.
+ * restore point that the reader can undo. So that it has something to write
+ * from, the conversation is kept under the wiki's sources first, as an
+ * uploaded document is before a filing (lib/conversations.ts
+ * conversationSource), and taken away again if nothing was written.
  *
  * A question names the model it is asked of (lib/models.ts), or leaves it to
  * the server.
@@ -99,7 +105,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const promptFor = (recap: string): string => `${recap}${mode === 'work' ? workPrompt(question, layout) : chatPrompt(question, layout)}`;
+  /** Work only: the conversation, kept under the sources for this turn to write from. From the wiki's folder. */
+  let source: string | null = null;
+  const promptFor = (recap: string): string => `${recap}${mode === 'work' ? workPrompt(question, layout, source) : chatPrompt(question, layout)}`;
   const start = (sessionId: string, resume: boolean, recap: string): AgentRun =>
     runClaude({
       mode: mode === 'work' ? 'work' : 'chat',
@@ -124,6 +132,7 @@ export async function POST(req: NextRequest) {
         model,
         answeredBy: null,
         wrote: [],
+        source: null,
         commit: null,
         undoCommit: null,
         findings: [],
@@ -139,6 +148,19 @@ export async function POST(req: NextRequest) {
           await ensureRepo(cluster, layout);
           before = await snapshot(cluster);
           baseline = await beforeIngest(cluster, before, layout);
+
+          // The conversation, kept where sources are kept, as an uploaded
+          // document is before a filing: the wiki's rules ask for a source, and
+          // the agent may not write there. Taken into the baseline, so the check
+          // afterwards notices if the agent changes it.
+          const kept = conversationSource(record, question);
+          const rawDir = clusterPath(cluster, layout.rawDir);
+          await fs.mkdir(rawDir, { recursive: true });
+          const taken = await fs.stat(path.join(rawDir, kept.name)).then(() => true, () => false);
+          const name = taken ? kept.name.replace(/\.md$/, `-${record.id.slice(0, 8)}.md`) : kept.name;
+          await fs.writeFile(path.join(rawDir, name), kept.text, { encoding: 'utf8', flag: 'wx' });
+          source = `${layout.rawDir}/${name}`;
+          baseline.sources = await sourceFingerprints(cluster, layout);
         }
 
         // Resume the binary's session when it has one; otherwise start it, with a
@@ -197,6 +219,13 @@ export async function POST(req: NextRequest) {
           for (const [slug, print] of after.pages) if (before.pages.get(slug) !== print) touched.add(slug);
           for (const slug of before.pages.keys()) if (!after.pages.has(slug)) touched.add(slug);
           turn.wrote = [...touched].sort();
+          if (source && turn.wrote.length === 0) {
+            // Nothing was written from it, so it is not a source of anything: it is taken away again.
+            await fs.rm(clusterPath(cluster, source), { force: true });
+            source = null;
+            baseline.sources = await sourceFingerprints(cluster, layout);
+          }
+          turn.source = source;
           const lint = await lintAfterIngest(cluster, baseline, 'turn');
           turn.findings = lint.findings.map((f) => ({ severity: f.severity, detail: f.detail }));
           turn.commit = await commitCluster(
@@ -216,6 +245,11 @@ export async function POST(req: NextRequest) {
       } catch (err) {
         turn.error = err instanceof Error ? err.message : 'The agent failed';
       } finally {
+        // A turn that wrote nothing leaves no source behind, however it ended.
+        if (source && turn.wrote.length === 0) {
+          await fs.rm(clusterPath(cluster, source), { force: true }).catch(() => {});
+          turn.source = null;
+        }
         if (mode === 'work') releaseBusy(cluster, owner);
         try {
           await appendTurn(record, turn);
@@ -230,6 +264,7 @@ export async function POST(req: NextRequest) {
             model: turn.answeredBy,
             title: record.title,
             wrote: turn.wrote,
+            source: turn.source,
             commit: turn.commit,
             findings: turn.findings,
             turn: record.turns.length - 1,

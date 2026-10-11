@@ -394,6 +394,15 @@ pages it changed, what the check found, and an Undo. A turn in Work that the
 reader stops watching is let finish and is in the conversation when they come
 back.
 
+What the reader says in a conversation is something to write from. A wiki's
+rules ask that what is written can be traced to a source under `raw/`, and the
+agent may not write there, so before a turn in Work the app keeps the
+conversation there itself, as it puts an uploaded document there before a
+filing: `raw/<date>-conversation-<name>-<turn>.md`, what was said since the
+last such source and the question asked now. The agent is told where it is and
+writes from it. A turn that writes nothing leaves no such file, and undoing a
+turn takes its source away with its pages.
+
 **A question chooses its model.** Beside the question: Default (what the
 server is set to in `CLAUDE_MODEL`, or Claude Code's own), Opus, Sonnet or
 Haiku, by Claude Code's aliases, so each follows the newest of its family.
