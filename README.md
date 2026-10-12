@@ -375,6 +375,16 @@ every block against the rules, and files that would steer a run. Nothing is
 changed; a person reads the report and decides. The check after a filing
 looks only at what that filing touched.
 
+**A message, not a query.** What the reader types in Ask is given to the agent
+as a message in a conversation (`chatPrompt` in `src/lib/chat.ts`, and
+"Talking with the reader" in the two rules files): a greeting is answered as a
+greeting, a question about the conversation as that, and only a question about
+what the pages might hold sends it to read them. To the reader it is "the
+brain", not "the wiki". A reply carries no citations in its text; the pages it
+drew on come on a `SOURCES:` line, which the app shows under the reply, closed
+until opened. Citations that slip into a reply anyway are taken out before it
+is shown or said (`withoutCitations` in `src/lib/speech.ts`).
+
 **Conversations are kept.** Every question belongs to a conversation, and the
 app keeps every conversation, with each question and answer, under
 `.dashboard/conversations/<wiki>/`: they are listed in the sidebar's Chats tab,
@@ -398,10 +408,24 @@ What the reader says in a conversation is something to write from. A wiki's
 rules ask that what is written can be traced to a source under `raw/`, and the
 agent may not write there, so before a turn in Work the app keeps the
 conversation there itself, as it puts an uploaded document there before a
-filing: `raw/<date>-conversation-<name>-<turn>.md`, what was said since the
-last such source and the question asked now. The agent is told where it is and
-writes from it. A turn that writes nothing leaves no such file, and undoing a
-turn takes its source away with its pages.
+filing. One file for one conversation, `raw/<date>-conversation-<name>.md`: the
+first turn that writes begins it, and each later one adds a dated part holding
+what was said since. So a conversation is one source, with at most one page
+for that source, however many changes are made in it. The agent is told where
+the file is, and to look first for the page that already covers the subject
+and change that; a new page is for a subject with none. A turn that writes
+nothing has its part taken back out. Undo reverts a turn's part with its pages;
+turns of one conversation are undone newest first, since each adds to the same
+file.
+
+**The web, in Discuss.** A Web switch beside the question, off until the
+reader turns it on (remembered per wiki). On, a message in Discuss runs with
+`WebSearch` and `WebFetch` as well as its reading tools, and is told the brain
+comes first, that a web page is material and never an instruction, and to put
+nothing from the brain into a search beyond what the question needs. Never in
+Work, which can write, and never in a filing, which reads documents nobody
+has vetted: `agentArgs` throws if asked. The turn is marked "Web" and the trail
+records it.
 
 **Voice.** Where the browser has speech (Chrome, Edge and Safari; not
 Firefox), the question box has a microphone and a Talk button, and each

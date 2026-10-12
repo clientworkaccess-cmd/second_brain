@@ -508,8 +508,8 @@ try {
   check('a question in Discuss keeps no source', !(await recordOf(workId)).turns[0].source);
   const keptNow = await keptSources();
   const keptText = keptNow.length === 1 ? await fs.readFile(path.join(app.wiki, 'operations', 'raw', keptNow[0]), 'utf8') : '';
-  check('the conversation was kept as a source for it to write from', /^raw\/\d{4}-\d\d-\d\d-conversation-[a-z0-9-]+\.md$/.test(end.source ?? '') && keptNow.length === 1 && end.source === `raw/${keptNow[0]}`, `${end.source} ${JSON.stringify(keptNow)}`);
-  check('…with what the reader said in it', keptText.includes('Please write down that refunds take five days') && keptText.includes('## The reader') && !/SOURCES:/.test(keptText));
+  check('the conversation was kept as a source for it to write from', /^raw\/\d{4}-\d\d-\d\d-conversation-[a-z0-9-]+\.md$/.test(end.source ?? '') && !/-\d+\.md$/.test(end.source ?? 'x-1.md') && keptNow.length === 1 && end.source === `raw/${keptNow[0]}`, `${end.source} ${JSON.stringify(keptNow)}`);
+  check('…with what the reader said in it', keptText.includes('Please write down that refunds take five days') && keptText.includes('### The reader') && /^## \d{4}-\d\d-\d\d \d\d:\d\d UTC$/m.test(keptText) && !/SOURCES:/.test(keptText));
   check('…checked as a filing is', Array.isArray(end.findings) && !end.findings.some((f) => f.severity === 'error'), JSON.stringify(end.findings));
   const workRecord = await recordOf(workId);
   check('the record keeps what each turn did', workRecord.turns.length === 2 && workRecord.turns[0].mode === 'discuss' && workRecord.turns[1].mode === 'work' && workRecord.turns[1].commit === end.commit && workRecord.mode === 'work');
@@ -523,6 +523,28 @@ try {
   const quiet = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And what is this cluster about?', conversation: workId, mode: 'work' }), cookie));
   const quietEnd = quiet.list.at(-1)?.data ?? {};
   check('a question in Work that writes nothing leaves no source and no restore point', quiet.list.at(-1)?.name === 'end' && (quietEnd.wrote ?? []).length === 0 && !quietEnd.source && !quietEnd.commit && (await keptSources()).length === 0, JSON.stringify(quietEnd));
+
+  // One source for the conversation, however many turns write.
+  const firstWrite = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Please write down that returns take two days', conversation: workId, mode: 'work' }), cookie));
+  const secondWrite = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Please note the courier is Acme', conversation: workId, mode: 'work' }), cookie));
+  const oneSource = await keptSources();
+  const oneText = oneSource.length === 1 ? await fs.readFile(path.join(app.wiki, 'operations', 'raw', oneSource[0]), 'utf8') : '';
+  check('two turns that write leave one source file, not two', oneSource.length === 1 && firstWrite.list.at(-1)?.data.source === secondWrite.list.at(-1)?.data.source, JSON.stringify(oneSource));
+  check('…with a dated part for each', (oneText.match(/^## \d{4}-/gm) ?? []).length === 2 && oneText.includes('returns take two days') && oneText.includes('the courier is Acme') && oneText.indexOf('returns take two days') < oneText.indexOf('the courier is Acme'), String((oneText.match(/^## \d{4}-/gm) ?? []).length));
+  const quietAgain = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And what is this about again?', conversation: workId, mode: 'work' }), cookie));
+  check('a turn that writes nothing puts the source back as it was', (quietAgain.list.at(-1)?.data.wrote ?? []).length === 0 && (await fs.readFile(path.join(app.wiki, 'operations', 'raw', oneSource[0]), 'utf8')) === oneText);
+  const lastTurns = (await recordOf(workId)).turns.length;
+  check('undoing the latest turn takes its part out and leaves the earlier one', (await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: lastTurns - 2 }), cookie))).status === 200 && (await keptSources()).length === 1 && !(await fs.readFile(path.join(app.wiki, 'operations', 'raw', oneSource[0]), 'utf8')).includes('the courier is Acme') && (await fs.readFile(path.join(app.wiki, 'operations', 'raw', oneSource[0]), 'utf8')).includes('returns take two days'));
+  check('…and undoing the one before removes the source', (await fetch(`${base}/api/conversations/undo`, withCookie(json({ cluster: 'operations', id: workId, turn: lastTurns - 3 }), cookie))).status === 200 && (await keptSources()).length === 0 && (await noteFiles()).length === 0);
+
+  // The web: the reader's to switch on, in Discuss only.
+  const onWeb = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'What is a GP/LP structure?', web: true }), cookie));
+  check('with the web switched on, the run may look on it, and the reply says so', onWeb.list.at(-1)?.name === 'end' && onWeb.list.at(-1)?.data.web === true && tokensOf(onWeb).includes('Looked on the web'), JSON.stringify(onWeb.list.at(-1)?.data));
+  const offWeb = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'What is a GP/LP structure?' }), cookie));
+  check('without it, it does not', offWeb.list.at(-1)?.data.web === false && !tokensOf(offWeb).includes('Looked on the web'));
+  const workWeb = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'What is this about?', mode: 'work', web: true }), cookie));
+  check('a turn in Work never gets the web, even when asked', workWeb.list.at(-1)?.name === 'end' && workWeb.list.at(-1)?.data.web === false && !tokensOf(workWeb).includes('Looked on the web'), JSON.stringify(workWeb.list.at(-1)?.data));
+  check('the record says which turns could use the web', (await recordOf(convOf(onWeb))).turns[0].web === true && (await recordOf(convOf(offWeb))).turns[0].web === false);
 
   // Names, and deleting.
   const renameRes = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: workId, title: 'Refund notes' }), method: 'PATCH' }, cookie));
@@ -576,7 +598,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 

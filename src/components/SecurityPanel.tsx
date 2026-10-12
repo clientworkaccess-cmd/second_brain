@@ -57,6 +57,7 @@ const SAID: Record<string, string> = {
   'image-added': 'Image added',
   'conversation-started': 'Conversation started',
   'conversation-wrote': 'Conversation changed pages',
+  'conversation-web': 'Conversation looked on the web',
   'conversation-undone': 'Conversation change undone',
   'conversation-deleted': 'Conversation deleted',
 };

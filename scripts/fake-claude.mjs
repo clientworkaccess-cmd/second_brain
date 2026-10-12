@@ -683,7 +683,7 @@ async function answer() {
     ? [...prompt.split('(end of the earlier conversation)')[0].matchAll(/^Q: (.*)$/gm)].map((m) => m[1])
     : [];
   const before = fromSession.length ? fromSession : recap;
-  const question = prompt.match(/using only the wiki in your working directory: "([^"]*)"/)?.[1] ?? prompt.split('\n')[0];
+  const question = prompt.match(/The reader's message[^:]*: "([^"]*)"/)?.[1] ?? prompt.split('\n')[0];
   const wrote = TOOLS.includes('Edit') && /\b(write|note|record|save)\b/i.test(question) ? await writeDown(question) : null;
   if (KEPT) {
     await fs.mkdir(SESSIONS, { recursive: true });
@@ -710,6 +710,7 @@ async function answer() {
     ...entries.map((entry) => `- **${entry.name}**: ${entry.summary || 'see the page'}. See [[${entry.name}]].`),
     ``,
     `SOURCES: ${entries.map((entry) => `[[${entry.name}]]`).join(', ')}`,
+    ...(TOOLS.includes('WebSearch') ? ['Looked on the web for background (example.com).'] : []),
     ...(wrote ? [`WROTE: [[${wrote}]]`] : []),
   ];
   const text = await stream(lines.map((line) => `${line}\n`));

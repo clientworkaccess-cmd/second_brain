@@ -43,6 +43,7 @@ export default async function Ask({ params, searchParams }: { params: Promise<{ 
         commit: t.commit,
         undone: t.undoCommit !== null,
         findings: t.findings,
+        web: t.web,
         error: t.error ?? undefined,
         done: true,
       })),

@@ -10,10 +10,24 @@
  * Claude Code has none.
  */
 
+/**
+ * A reply without citations in its text. The agent is asked not to write
+ * them; a wiki's own rules ask for them in pages, and habit carries over, so
+ * what slips through is taken out here: `([[page]])` and `([[a]], [[b]])`
+ * after a sentence, with or without "see" or "source:", and the footnote form
+ * `^[raw/file.md]`. A page named in the sentence itself, "ask [[Mark Chen]]",
+ * is not a citation and stays.
+ */
+export function withoutCitations(markdown: string): string {
+  return markdown
+    .replace(/[ \t]*\(\s*(?:(?:see|source|sources|from|per|cf\.?)\s*:?\s*)?\[\[[^\]]+\]\](?:\s*(?:[,;]|and)\s*\[\[[^\]]+\]\])*\s*\)/gi, '')
+    .replace(/[ \t]*\^\[[^\]\n]*\]/g, '');
+}
+
 /** An answer, or a piece of one, as it is said: no markup, no SOURCES or WROTE line, no code. */
 export function speakable(markdown: string): string {
   return (
-    markdown
+    withoutCitations(markdown)
       // Lines the app shows as links, not as text.
       .replace(/^(SOURCES|WROTE):.*$/gm, '')
       // Code is not read out.

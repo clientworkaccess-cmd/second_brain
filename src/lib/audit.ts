@@ -38,6 +38,7 @@ export type AuditEvent =
   | 'image-added'
   | 'conversation-started'
   | 'conversation-wrote'
+  | 'conversation-web'
   | 'conversation-undone'
   | 'conversation-deleted';
 

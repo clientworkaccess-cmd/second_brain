@@ -75,7 +75,7 @@ export interface AgentRun {
  *
  * Paths starting with `/` are relative to the working directory.
  */
-function profile(mode: AgentMode, layout: Layout): { tools: string[]; allow: string[] } {
+function profile(mode: AgentMode, layout: Layout, web = false): { tools: string[]; allow: string[] } {
   switch (mode) {
     // The working directory is a throwaway copy (see sandbox.ts). The one thing
     // the planner writes is its answer.
@@ -84,13 +84,17 @@ function profile(mode: AgentMode, layout: Layout): { tools: string[]; allow: str
     // What may be written depends on where the wiki keeps its pages.
     case 'execute':
       return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
+    // The web, when the reader has switched it on for a message: only here, where nothing can be written.
     case 'chat':
-      return { tools: ['Read', 'Glob', 'Grep'], allow: [] };
+      return web ? { tools: ['Read', 'Glob', 'Grep', ...WEB], allow: [...WEB] } : { tools: ['Read', 'Glob', 'Grep'], allow: [] };
     // A conversation that may write writes exactly where a filing may, under the same deny rules.
     case 'work':
       return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
   }
 }
+
+/** Looking on the web. Off for every run but a question in Discuss that the reader switched it on for. */
+const WEB = ['WebSearch', 'WebFetch'];
 
 /** Second layer under `--tools`: named so that a renamed flag or a new default cannot bring these back. */
 const NEVER = ['Bash', 'WebFetch', 'WebSearch', 'Agent', 'Task', 'NotebookEdit'];
@@ -99,9 +103,9 @@ const NEVER = ['Bash', 'WebFetch', 'WebSearch', 'Agent', 'Task', 'NotebookEdit']
  * Files that would let a run leave instructions for the next one, and files
  * that hold secrets. Deny rules win over allow rules.
  */
-function denyRules(layout: Layout): string[] {
+function denyRules(layout: Layout, web = false): string[] {
   return [
-    ...NEVER,
+    ...(web ? NEVER.filter((tool) => !WEB.includes(tool)) : NEVER),
     // Read at the start of every run as the rules for the wiki, and written by
     // a person. A run that could edit it would be writing the rules for the
     // next run. Named for both layouts, whichever this wiki has.
@@ -141,8 +145,11 @@ function fromRoot(absolute: string): string {
 }
 
 /** The generated part of the command line. Exported so the check scripts can hold it against the real binary. */
-export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null, model: string | null = null): string[] {
-  const { tools, allow } = profile(mode, layout);
+export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null, model: string | null = null, web = false): string[] {
+  // A run that can write, or that reads a document nobody has vetted in order to file it, never gets the web:
+  // with both, one planted line could send pages out, or bring instructions in.
+  if (web && mode !== 'chat') throw new Error('Only a question that cannot write may look on the web');
+  const { tools, allow } = profile(mode, layout, web);
   if (conversation && ((mode !== 'chat' && mode !== 'work') || !CONVERSATION_ID.test(conversation.id))) {
     throw new Error('Only a question can be part of a conversation, and its id is a UUID');
   }
@@ -154,7 +161,7 @@ export function agentArgs(mode: AgentMode, layout: Layout, conversation: Convers
     '--permission-mode', 'dontAsk',
     '--tools', tools.join(','),
     ...(allow.length > 0 ? ['--allowedTools', ...allow] : []),
-    '--disallowedTools', ...new Set(denyRules(layout)),
+    '--disallowedTools', ...new Set(denyRules(layout, web)),
     '--append-system-prompt-file', path.join(PROMPTS_DIR, layout.prompt),
     '--setting-sources', '',
     '--strict-mcp-config',
@@ -212,8 +219,9 @@ export function agentInvocation(
   layout: Layout,
   conversation: Conversation | null = null,
   model: string | null = null,
+  web = false,
 ): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
-  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation, model)], env: narrowEnv(cwd) };
+  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation, model, web)], env: narrowEnv(cwd) };
 }
 
 /** See streamLogDir() in config.ts. A run is never failed because its record could not be kept. */
@@ -243,6 +251,8 @@ export function runClaude(opts: {
   conversation?: Conversation | null;
   /** Chat only: the model chosen for this question (an alias from lib/models.ts), or null for the server's. */
   model?: string | null;
+  /** Chat only: the reader switched the web on for this message. */
+  web?: boolean;
   timeoutMs?: number;
   usageFile?: string;
 }): AgentRun {
@@ -251,7 +261,7 @@ export function runClaude(opts: {
   const parser = new StreamParser(opts.cwd);
   const chat = opts.mode === 'chat';
 
-  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null, opts.model ?? null);
+  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null, opts.model ?? null, opts.web ?? false);
   const record = openStreamLog(opts.mode);
   const child = spawn(command, args, {
     cwd: opts.cwd,

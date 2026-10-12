@@ -113,29 +113,38 @@ try {
   check('the sources are read off the answer', JSON.stringify(sourcesOf('Text\nSOURCES: [[A]], [[B c]]')) === '["A","B c"]' && sourcesOf('nothing').length === 0);
   for (const layout of [CLUSTER, BRAIN]) {
     const w = workPrompt('Write it down', layout);
-    check(`a question that may write says so, and asks for a WROTE line (${layout.id})`, w.startsWith(chatPrompt('Write it down', layout)) && /may change the wiki/.test(w) && /WROTE:/.test(w) && w.includes(layout.id === 'brain' ? 'wiki/index.md' : 'index.md'));
+    check(`a question that may write says so, and asks for a WROTE line (${layout.id})`, w.startsWith(chatPrompt('Write it down', layout)) && /may change the brain/.test(w) && /WROTE:/.test(w) && w.includes(layout.id === 'brain' ? 'wiki/index.md' : 'index.md'));
   }
 
   // ------------------------------------------- the conversation as a source
   const talk = await conv.createConversation('ops', new Date('2026-10-03T08:00:00Z'));
   await conv.appendTurn(talk, turn('We moved the Q4 launch to November 14.', 'Noted. The launch page says October.\n\nSOURCES: [[Launch]]'));
   await conv.appendTurn(talk, turn('This one failed', '', { error: 'it failed' }));
-  const kept = conv.conversationSource(talk, 'Please update the wiki with that.', new Date('2026-10-03T08:10:00Z'));
-  check('the source is named by the date, the conversation and the turn', kept.name === '2026-10-03-conversation-we-moved-the-q4-launch-to-november-14-3.md', kept.name);
-  check('it holds what the reader said, first, and the question asked now', kept.text.indexOf('We moved the Q4 launch to November 14.') > 0 && kept.text.indexOf('We moved the Q4 launch') < kept.text.indexOf('Please update the wiki with that.'));
-  check('it holds what was answered, as context, without the SOURCES line', kept.text.includes('The launch page says October.') && !/SOURCES:/.test(kept.text) && /not a source for facts/.test(kept.text));
-  check('a turn that failed is left out', !kept.text.includes('This one failed'));
-  await conv.appendTurn(talk, turn('Please update the wiki with that.', 'Done.', { mode: 'work', source: `raw/${kept.name}`, wrote: ['entities/launch'], commit: 'abc1234' }));
+  const kept = conv.conversationSource(talk, 'Please update the brain with that.', new Date('2026-10-03T08:10:00Z'));
+  check('the source is named by the date and the conversation, not by the turn', kept.name === '2026-10-03-conversation-we-moved-the-q4-launch-to-november-14.md', kept.name);
+  check('it begins with what it is', kept.head.startsWith('# Conversation: We moved the Q4 launch to November 14.') && /not a source for facts/.test(kept.head));
+  check('its first part is dated, with what the reader said and the message sent now', kept.section.startsWith('## 2026-10-03 08:10 UTC') && kept.section.indexOf('We moved the Q4 launch to November 14.') > 0 && kept.section.indexOf('We moved the Q4 launch') < kept.section.indexOf('Please update the brain with that.'));
+  check('what was answered is there as context, without the SOURCES line', kept.section.includes('The launch page says October.') && !/SOURCES:/.test(kept.section));
+  check('a turn that failed is left out', !kept.section.includes('This one failed'));
+  const sourcePath = `raw/${kept.name}`;
+  talk.source = sourcePath;
+  await conv.appendTurn(talk, turn('Please update the brain with that.', 'Done.', { mode: 'work', source: sourcePath, wrote: ['entities/launch'], commit: 'abc1234' }));
   await conv.appendTurn(talk, turn('Also, the venue is the Marriott.', 'Noted.'));
-  const next = conv.conversationSource(talk, 'Add that too.', new Date('2026-10-04T09:00:00Z'));
-  check('the next source holds only what was said since the last one', next.text.includes('the venue is the Marriott') && next.text.includes('Add that too.') && !next.text.includes('The launch page says October') && !next.text.includes('Please update the wiki with that.') &&next.name.startsWith('2026-10-04-conversation-') && next.name.endsWith('-5.md'), next.name);
-  check('the record remembers which source a turn wrote from', (await conv.readConversation('ops', talk.id)).turns[2].source === `raw/${kept.name}`);
+  await conv.renameConversation('ops', talk.id, 'Launch planning');
+  const again = await conv.readConversation('ops', talk.id);
+  const next = conv.conversationSource(again, 'Add that too.', new Date('2026-10-04T09:00:00Z'));
+  check('a later turn adds to the same file, whatever the day and whatever the conversation is called now', next.name === kept.name && again.source === sourcePath, next.name);
+  check('…only what was said since the last part, under its own date', next.section.startsWith('## 2026-10-04 09:00 UTC') && next.section.includes('the venue is the Marriott') && next.section.includes('Add that too.') && !next.section.includes('The launch page says October') && !next.section.includes('Please update the brain with that.'));
+  check('the record remembers its one source, and which turns added to it', again.source === sourcePath && again.turns[2].source === sourcePath && again.turns[3].source === null);
   const unnamed = await conv.createConversation('ops');
   const accented = conv.conversationSource(unnamed, 'Écoute: the café opens at 9!', new Date('2026-10-05T00:00:00Z')).name;
-  check('a conversation with no name yet takes it from the question', accented === '2026-10-05-conversation-ecoute-the-cafe-opens-at-9-1.md', accented);
+  check('a conversation with no name yet takes it from the message', accented === '2026-10-05-conversation-ecoute-the-cafe-opens-at-9.md', accented);
   check('a name is never a path', !/[\\/]|\.\./.test(conv.conversationSource(unnamed, '../../etc/passwd and C:\\Windows', new Date()).name));
-  const told = workPrompt('Update it', BRAIN, 'raw/2026-10-03-conversation-x-3.md');
-  check('the agent is told where the source is, and that nothing else is needed', told.includes('raw/2026-10-03-conversation-x-3.md') && /is a source/.test(told) && /none is missing/.test(told) && !workPrompt('Update it', BRAIN).includes('is a source'));
+  const told = workPrompt('Update it', BRAIN, { path: 'raw/2026-10-03-conversation-x.md', continued: false });
+  check('the agent is told where the source is, and that nothing else is needed', told.includes('raw/2026-10-03-conversation-x.md') && /is a source/.test(told) && /none is missing/.test(told) && /only one/.test(told) && !workPrompt('Update it', BRAIN).includes('is a source'));
+  const toldAgain = workPrompt('Update it', BRAIN, { path: 'raw/2026-10-03-conversation-x.md', continued: true });
+  check('later in the conversation it is told it is the same source, and to add to its one page', /same file as earlier/.test(toldAgain) && /Never make a second/.test(toldAgain));
+  check('it is told to change the page that exists before it makes a new one', /find what the brain already says/.test(told) && /change that page/.test(told) && /Only when nothing covers the subject/.test(told) && /Never one page for each message/.test(told));
   await conv.deleteConversation('ops', talk.id);
   await conv.deleteConversation('ops', unnamed.id);
 

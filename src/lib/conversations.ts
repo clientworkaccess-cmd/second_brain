@@ -40,8 +40,10 @@ export interface ConversationTurn {
   answeredBy: string | null;
   /** Pages created, changed or removed by this turn, by slug. */
   wrote: string[];
-  /** The source the app kept of the conversation for this turn to write from, from the wiki's folder: `raw/…md`. */
+  /** The conversation's source file, when this turn added to it: `raw/…md`, from the wiki's folder. */
   source: string | null;
+  /** Whether the turn was allowed to look on the web. */
+  web: boolean;
   /** The restore point made after a turn that wrote; undone by reverting it. */
   commit: string | null;
   undoCommit: string | null;
@@ -61,6 +63,8 @@ export interface ConversationRecord {
   /** The last ones chosen, so a conversation reopens as it was left. */
   mode: ConversationMode;
   model: string | null;
+  /** The one source file this conversation is kept in, once a turn has written from it: `raw/…md`. */
+  source: string | null;
   /** Claude Code's own session for this conversation. `started`: it has answered once, so the next question resumes it. */
   session: { id: string; started: boolean };
   turns: ConversationTurn[];
@@ -138,6 +142,7 @@ export function parseRecord(raw: string, cluster: string, id: string): Conversat
         answeredBy: strOrNull(r.answeredBy),
         wrote: strings(r.wrote),
         source: strOrNull(r.source),
+        web: r.web === true,
         commit: strOrNull(r.commit),
         undoCommit: strOrNull(r.undoCommit),
         findings: (Array.isArray(r.findings) ? r.findings : []).flatMap((f) =>
@@ -158,6 +163,7 @@ export function parseRecord(raw: string, cluster: string, id: string): Conversat
     updatedAt: str(o.updatedAt),
     mode: modeOf(o.mode),
     model: strOrNull(o.model),
+    source: strOrNull(o.source),
     session: { id: isConversationId(session.id) ? session.id : randomUUID(), started: session.started === true },
     turns,
   };
@@ -179,6 +185,7 @@ export async function createConversation(cluster: string, now: Date = new Date()
     updatedAt: at,
     mode: 'discuss',
     model: null,
+    source: null,
     session: { id: randomUUID(), started: false },
     turns: [],
   };
@@ -269,28 +276,40 @@ export function endTurn(id: string): void {
 
 const SOURCE_ANSWER_MAX = 3000;
 
+export interface KeptSource {
+  /** The file's name under the sources folder. The same one for the whole conversation. */
+  name: string;
+  /** What the file begins with, when this turn is the first to be kept. */
+  head: string;
+  /** What this turn adds to it. */
+  section: string;
+}
+
 /**
  * What was said in a conversation, as a source document.
  *
  * A wiki's rules ask that what is written can be traced to a source under its
  * sources folder, and the agent may not write there. So when a turn may write,
  * the app keeps the conversation there itself, as it puts an uploaded document
- * there before a filing: what the reader said since the last such source, and
- * what was answered, then the question being asked now. The agent is told
- * where it is (lib/chat.ts workPrompt) and writes from it.
+ * there before a filing. The agent is told where it is (lib/chat.ts
+ * workPrompt) and writes from it.
  *
- * The file's name carries the date, the conversation's name and the turn, so
- * no two are the same and none is ever rewritten.
+ * One file for one conversation. The first turn that writes begins it; each
+ * later one adds a dated section to the end, holding what was said since the
+ * last: what the reader said, what was answered as context, and the message
+ * being sent now. So ten changes made in one conversation are one source, and
+ * one source page, not ten.
  */
-export function conversationSource(record: ConversationRecord, question: string, now: Date = new Date()): { name: string; text: string } {
-  const date = now.toISOString().slice(0, 10);
+export function conversationSource(record: ConversationRecord, question: string, now: Date = new Date()): KeptSource {
+  const stamp = now.toISOString();
+  const date = stamp.slice(0, 10);
   const words = record.title === UNTITLED ? titleFrom(question) : record.title;
   // Accents are dropped, not turned into hyphens: "café" is "cafe".
-  const slug = words.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '') || 'untitled';
-  const turn = record.turns.length + 1;
-  const name = `${date}-conversation-${slug}-${turn}.md`;
+  const slug = words.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '') || 'untitled';
+  // Once begun, the file keeps the name it was given, whatever the conversation is called later.
+  const name = record.source ? (record.source.split('/').pop() as string) : `${date}-conversation-${slug}.md`;
 
-  // Only what has not been kept already: the turns after the last one that has a source.
+  // Only what has not been kept already: the turns after the last one that added to the source.
   let from = 0;
   record.turns.forEach((t, i) => {
     if (t.source) from = i + 1;
@@ -298,20 +317,19 @@ export function conversationSource(record: ConversationRecord, question: string,
   const said: string[] = [];
   for (const t of record.turns.slice(from)) {
     if (t.error) continue;
-    said.push(`## The reader\n\n${t.question.trim()}`);
+    said.push(`### The reader\n\n${t.question.trim()}`);
     const answer = t.answer.replace(/^(SOURCES|WROTE):.*$/gm, '').trim();
-    if (answer) said.push(`## The assistant\n\n${answer.length > SOURCE_ANSWER_MAX ? `${answer.slice(0, SOURCE_ANSWER_MAX)}…` : answer}`);
+    if (answer) said.push(`### The assistant\n\n${answer.length > SOURCE_ANSWER_MAX ? `${answer.slice(0, SOURCE_ANSWER_MAX)}…` : answer}`);
   }
-  said.push(`## The reader\n\n${question.trim()}`);
+  said.push(`### The reader\n\n${question.trim()}`);
 
-  const text = [
+  const head = [
     `# Conversation: ${words}`,
     '',
-    `A conversation with this wiki in the app, kept on ${date} as a source.`,
-    'What the reader said is first-hand, like a note or an email from them. What the assistant said is context: it was drawn from the wiki, and is not a source for facts.',
-    '',
-    said.join('\n\n'),
+    `A conversation with this brain in the app, kept as a source. It began on ${date}; each part below is dated.`,
+    'What the reader said is first-hand, like a note or an email from them. What the assistant said is context: it was drawn from the pages, and is not a source for facts.',
     '',
   ].join('\n');
-  return { name, text };
+  const section = [`## ${stamp.slice(0, 16).replace('T', ' ')} UTC`, '', said.join('\n\n'), ''].join('\n');
+  return { name, head, section };
 }

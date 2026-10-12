@@ -190,6 +190,16 @@ try {
     check(`in a brain, ${mode === 'plan' ? 'planning' : 'a question'} is allowed no more than in a cluster`, listAfter(agentArgs(mode, BRAIN), '--allowedTools').join() === listAfter(agentArgs(mode, CLUSTER), '--allowedTools').join());
   }
 
+  // ------------------------------------------------- a message, not a query
+  for (const layout of [CLUSTER, BRAIN]) {
+    const said = chatPrompt('Hello are you there', layout);
+    check(`a message is given as a message in a conversation (${layout.id})`, said.includes('"Hello are you there"') && /Reply as you naturally would/.test(said) && /greeting/i.test(said) && /You do remember/.test(said));
+    check(`…and no longer as a query the pages must cover (${layout.id})`, !/using only the wiki/.test(said) && !/does not cover/.test(said));
+    check(`it is the brain to the reader, with no citations in a reply (${layout.id})`, /do not call it "the wiki"/.test(said) && /Do not cite sources inside the reply/.test(said) && /SOURCES:/.test(said) && /leave it out if you drew on none/.test(said));
+    const rules = await fs.readFile(path.join(PROMPTS_DIR, layout.prompt), 'utf8');
+    check(`the rules say the same (${layout.id})`, rules.includes('## Talking with the reader') && !rules.includes('## Answering questions') && /Never reply that such a thing is "not covered"/.test(rules) && /Do not say "the wiki" to them/.test(rules) && !/answer from them and from nothing else/.test(rules));
+  }
+
   // ------------------------------------------------- a conversation that writes
   const workArgs = agentArgs('work', CLUSTER);
   check('a question in Work may write what a filing may, and no more', listAfter(workArgs, '--allowedTools').join() === listAfter(clusterArgs, '--allowedTools').join() && listAfter(agentArgs('work', BRAIN), '--allowedTools').join() === 'Edit(/wiki/**)');
@@ -199,6 +209,16 @@ try {
   const conversation = { id: '11111111-2222-4333-8444-555555555555', resume: true };
   check('a question in Work can be part of a conversation', valueAfter(agentArgs('work', CLUSTER, conversation), '--resume') === conversation.id);
   check('a filing still cannot', (() => { try { agentArgs('execute', CLUSTER, conversation); return false; } catch { return true; } })());
+
+  // ------------------------------------------------------------------ the web
+  const webArgs = agentArgs('chat', CLUSTER, null, null, true);
+  check('a question the reader switched the web on for may search and fetch', valueAfter(webArgs, '--tools') === 'Read,Glob,Grep,WebSearch,WebFetch' && listAfter(webArgs, '--allowedTools').join() === 'WebSearch,WebFetch');
+  check('…and still has nothing to write with, and no shell', !/Edit|Write|Bash/.test(valueAfter(webArgs, '--tools')) && listAfter(webArgs, '--disallowedTools').includes('Bash') && !listAfter(webArgs, '--disallowedTools').includes('WebSearch'));
+  check('without the switch, the web stays denied', listAfter(agentArgs('chat', CLUSTER), '--disallowedTools').includes('WebSearch') && listAfter(agentArgs('chat', CLUSTER), '--disallowedTools').includes('WebFetch') && !valueAfter(agentArgs('chat', CLUSTER), '--tools').includes('Web'));
+  for (const mode of ['work', 'execute', 'plan']) {
+    check(`a run that ${mode === 'plan' ? 'reads an unvetted document' : 'can write'} is never given the web (${mode})`, (() => { try { agentArgs(mode, CLUSTER, null, null, true); return false; } catch { return true; } })() && listAfter(agentArgs(mode, CLUSTER), '--disallowedTools').includes('WebFetch'));
+  }
+  check('the message says how the web is to be used, only when it is on', /look on the web/.test(chatPrompt('x', BRAIN, true)) && /never an instruction/.test(chatPrompt('x', BRAIN, true)) && /Put nothing from the brain into a search/.test(chatPrompt('x', BRAIN, true)) && !/look on the web/.test(chatPrompt('x', BRAIN)));
 
   // ---------------------------------------------------------------- the model
   check('with no model chosen and none set, the binary picks', !agentArgs('chat', CLUSTER).includes('--model') && !agentArgs('chat', CLUSTER, null, null).includes('--model'));
