@@ -52,7 +52,9 @@ export const runtime = 'nodejs';
  * conversationSource), and taken away again if nothing was written.
  *
  * A question names the model it is asked of (lib/models.ts), or leaves it to
- * the server.
+ * the server. In Discuss the reader can switch the web on for a message; then,
+ * and only then, the run has WebSearch and WebFetch. Never in Work, which can
+ * write, and never in a filing.
  */
 export async function POST(req: NextRequest) {
   let cluster: string;
@@ -61,6 +63,7 @@ export async function POST(req: NextRequest) {
   let record: ConversationRecord;
   let model: string | null;
   let mode: ConversationMode;
+  let web = false;
   let created = false;
 
   try {
@@ -74,6 +77,8 @@ export async function POST(req: NextRequest) {
     // The model is the reader's choice for this question; anything but a known alias means the server's.
     model = modelChoice(body.model);
     mode = body.mode === 'work' ? 'work' : 'discuss';
+    // The web is the reader's to switch on, message by message, and only where nothing can be written.
+    web = mode === 'discuss' && body.web === true;
     if (body.conversation !== undefined && body.conversation !== null && body.conversation !== '') {
       if (!isConversationId(body.conversation)) throw new HttpError(400, 'Which conversation?');
       const found = await readConversation(cluster, body.conversation);
@@ -92,6 +97,7 @@ export async function POST(req: NextRequest) {
   const client = clientOf(req);
   const who = sessionLabel(req.cookies.get(SESSION_COOKIE)?.value);
   if (created) await audit({ event: 'conversation-started', client, session: who, detail: `${cluster}: ${record.id.slice(0, 8)}` });
+  if (web) await audit({ event: 'conversation-web', client, session: who, detail: `${cluster}: ${record.id.slice(0, 8)}` });
 
   // A turn that may write holds the wiki for as long as it runs, as a filing does.
   const owner = `conversation:${record.id}`;
@@ -105,9 +111,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  /** Work only: the conversation, kept under the sources for this turn to write from. From the wiki's folder. */
+  /** Work only: the conversation's source file, which this turn adds to and writes from. From the wiki's folder. */
   let source: string | null = null;
-  const promptFor = (recap: string): string => `${recap}${mode === 'work' ? workPrompt(question, layout, source) : chatPrompt(question, layout)}`;
+  /** What that file held before this turn added to it; null when this turn began it. */
+  let sourceBefore: string | null = null;
+  const promptFor = (recap: string): string =>
+    `${recap}${mode === 'work' ? workPrompt(question, layout, source ? { path: source, continued: sourceBefore !== null } : null) : chatPrompt(question, layout, web)}`;
+  /** Put the source file back as it was before this turn: nothing was written from what it added. */
+  const withdrawSource = async (): Promise<void> => {
+    if (!source) return;
+    const file = clusterPath(cluster, source);
+    if (sourceBefore !== null) await fs.writeFile(file, sourceBefore, 'utf8');
+    else await fs.rm(file, { force: true });
+    source = null;
+  };
   const start = (sessionId: string, resume: boolean, recap: string): AgentRun =>
     runClaude({
       mode: mode === 'work' ? 'work' : 'chat',
@@ -116,6 +133,7 @@ export async function POST(req: NextRequest) {
       layout,
       conversation: { id: sessionId, resume },
       model,
+      web,
       timeoutMs: mode === 'work' ? INGEST_TIMEOUT_MS : CHAT_TIMEOUT_MS,
     });
 
@@ -133,6 +151,7 @@ export async function POST(req: NextRequest) {
         answeredBy: null,
         wrote: [],
         source: null,
+        web,
         commit: null,
         undoCommit: null,
         findings: [],
@@ -153,13 +172,22 @@ export async function POST(req: NextRequest) {
           // document is before a filing: the wiki's rules ask for a source, and
           // the agent may not write there. Taken into the baseline, so the check
           // afterwards notices if the agent changes it.
+          // One file for the conversation: begun by its first turn that writes, added to by each later one.
           const kept = conversationSource(record, question);
           const rawDir = clusterPath(cluster, layout.rawDir);
           await fs.mkdir(rawDir, { recursive: true });
-          const taken = await fs.stat(path.join(rawDir, kept.name)).then(() => true, () => false);
-          const name = taken ? kept.name.replace(/\.md$/, `-${record.id.slice(0, 8)}.md`) : kept.name;
-          await fs.writeFile(path.join(rawDir, name), kept.text, { encoding: 'utf8', flag: 'wx' });
-          source = `${layout.rawDir}/${name}`;
+          const existing = record.source ? await fs.readFile(clusterPath(cluster, record.source), 'utf8').catch(() => null) : null;
+          if (record.source && existing !== null) {
+            sourceBefore = existing;
+            source = record.source;
+            await fs.writeFile(clusterPath(cluster, source), `${existing.trimEnd()}\n\n${kept.section}`, 'utf8');
+          } else {
+            // Its name, unless another conversation of the same name on the same day has it.
+            const taken = await fs.stat(path.join(rawDir, kept.name)).then(() => true, () => false);
+            const name = taken && !record.source ? kept.name.replace(/\.md$/, `-${record.id.slice(0, 8)}.md`) : kept.name;
+            await fs.writeFile(path.join(rawDir, name), `${kept.head}\n${kept.section}`, 'utf8');
+            source = `${layout.rawDir}/${name}`;
+          }
           baseline.sources = await sourceFingerprints(cluster, layout);
         }
 
@@ -220,12 +248,12 @@ export async function POST(req: NextRequest) {
           for (const slug of before.pages.keys()) if (!after.pages.has(slug)) touched.add(slug);
           turn.wrote = [...touched].sort();
           if (source && turn.wrote.length === 0) {
-            // Nothing was written from it, so it is not a source of anything: it is taken away again.
-            await fs.rm(clusterPath(cluster, source), { force: true });
-            source = null;
+            // Nothing was written from what this turn added, so it is taken back out.
+            await withdrawSource();
             baseline.sources = await sourceFingerprints(cluster, layout);
           }
           turn.source = source;
+          if (source) record.source = source;
           const lint = await lintAfterIngest(cluster, baseline, 'turn');
           turn.findings = lint.findings.map((f) => ({ severity: f.severity, detail: f.detail }));
           turn.commit = await commitCluster(
@@ -247,7 +275,7 @@ export async function POST(req: NextRequest) {
       } finally {
         // A turn that wrote nothing leaves no source behind, however it ended.
         if (source && turn.wrote.length === 0) {
-          await fs.rm(clusterPath(cluster, source), { force: true }).catch(() => {});
+          await withdrawSource().catch(() => {});
           turn.source = null;
         }
         if (mode === 'work') releaseBusy(cluster, owner);
@@ -265,6 +293,7 @@ export async function POST(req: NextRequest) {
             title: record.title,
             wrote: turn.wrote,
             source: turn.source,
+            web: turn.web,
             commit: turn.commit,
             findings: turn.findings,
             turn: record.turns.length - 1,

@@ -408,10 +408,24 @@ What the reader says in a conversation is something to write from. A wiki's
 rules ask that what is written can be traced to a source under `raw/`, and the
 agent may not write there, so before a turn in Work the app keeps the
 conversation there itself, as it puts an uploaded document there before a
-filing: `raw/<date>-conversation-<name>-<turn>.md`, what was said since the
-last such source and the question asked now. The agent is told where it is and
-writes from it. A turn that writes nothing leaves no such file, and undoing a
-turn takes its source away with its pages.
+filing. One file for one conversation, `raw/<date>-conversation-<name>.md`: the
+first turn that writes begins it, and each later one adds a dated part holding
+what was said since. So a conversation is one source, with at most one page
+for that source, however many changes are made in it. The agent is told where
+the file is, and to look first for the page that already covers the subject
+and change that; a new page is for a subject with none. A turn that writes
+nothing has its part taken back out. Undo reverts a turn's part with its pages;
+turns of one conversation are undone newest first, since each adds to the same
+file.
+
+**The web, in Discuss.** A Web switch beside the question, off until the
+reader turns it on (remembered per wiki). On, a message in Discuss runs with
+`WebSearch` and `WebFetch` as well as its reading tools, and is told the brain
+comes first, that a web page is material and never an instruction, and to put
+nothing from the brain into a search beyond what the question needs. Never in
+Work, which can write, and never in a filing, which reads documents nobody
+has vetted: `agentArgs` throws if asked. The turn is marked "Web" and the trail
+records it.
 
 **Voice.** Where the browser has speech (Chrome, Edge and Safari; not
 Firefox), the question box has a microphone and a Talk button, and each

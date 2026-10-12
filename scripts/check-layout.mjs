@@ -210,6 +210,16 @@ try {
   check('a question in Work can be part of a conversation', valueAfter(agentArgs('work', CLUSTER, conversation), '--resume') === conversation.id);
   check('a filing still cannot', (() => { try { agentArgs('execute', CLUSTER, conversation); return false; } catch { return true; } })());
 
+  // ------------------------------------------------------------------ the web
+  const webArgs = agentArgs('chat', CLUSTER, null, null, true);
+  check('a question the reader switched the web on for may search and fetch', valueAfter(webArgs, '--tools') === 'Read,Glob,Grep,WebSearch,WebFetch' && listAfter(webArgs, '--allowedTools').join() === 'WebSearch,WebFetch');
+  check('…and still has nothing to write with, and no shell', !/Edit|Write|Bash/.test(valueAfter(webArgs, '--tools')) && listAfter(webArgs, '--disallowedTools').includes('Bash') && !listAfter(webArgs, '--disallowedTools').includes('WebSearch'));
+  check('without the switch, the web stays denied', listAfter(agentArgs('chat', CLUSTER), '--disallowedTools').includes('WebSearch') && listAfter(agentArgs('chat', CLUSTER), '--disallowedTools').includes('WebFetch') && !valueAfter(agentArgs('chat', CLUSTER), '--tools').includes('Web'));
+  for (const mode of ['work', 'execute', 'plan']) {
+    check(`a run that ${mode === 'plan' ? 'reads an unvetted document' : 'can write'} is never given the web (${mode})`, (() => { try { agentArgs(mode, CLUSTER, null, null, true); return false; } catch { return true; } })() && listAfter(agentArgs(mode, CLUSTER), '--disallowedTools').includes('WebFetch'));
+  }
+  check('the message says how the web is to be used, only when it is on', /look on the web/.test(chatPrompt('x', BRAIN, true)) && /never an instruction/.test(chatPrompt('x', BRAIN, true)) && /Put nothing from the brain into a search/.test(chatPrompt('x', BRAIN, true)) && !/look on the web/.test(chatPrompt('x', BRAIN)));
+
   // ---------------------------------------------------------------- the model
   check('with no model chosen and none set, the binary picks', !agentArgs('chat', CLUSTER).includes('--model') && !agentArgs('chat', CLUSTER, null, null).includes('--model'));
   check('the model chosen for a question goes after --model', valueAfter(agentArgs('chat', CLUSTER, null, 'haiku'), '--model') === 'haiku');

@@ -79,9 +79,9 @@ await createCluster({ name: 'ops', scope: 'Returns and refunds', entities: '', q
 const cluster = path.join(process.env.WIKI_ROOT, 'ops');
 
 /** Exactly what the app would run, with everything it printed. */
-function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER, conversation = null, model = null) {
+function run(mode, prompt, cwd = cluster, timeoutMs = 180_000, layout = CLUSTER, conversation = null, model = null, web = false) {
   return new Promise((resolve) => {
-    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout, conversation, model);
+    const { command: cmd, args, env } = agentInvocation(mode, cwd, layout, conversation, model, web);
     const child = spawn(cmd, args, { cwd, env, shell: false, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     let out = '';
     let err = '';
@@ -149,6 +149,12 @@ for (const [layout, mode] of [CLUSTER, BRAIN].flatMap((l) => ['plan', 'execute',
   const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, { id, resume: false });
   check('chat, in a conversation: every flag and rule is accepted', !!r.init && !/unknown option|unknown argument|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
   check('chat, in a conversation: the session has the id the app gave it', r.init?.sessionId === id, r.init?.sessionId ?? '');
+}
+// A question with the web switched on: the real binary accepts the flags and has the two tools, and still cannot write.
+{
+  const r = await run('chat', 'Reply with the single word: ready', cluster, 180_000, CLUSTER, null, 'haiku', true);
+  check('chat with the web: every flag and rule is accepted', !!r.init && !/unknown option|invalid (option|value|rule|permission)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
+  check('chat with the web: the run has WebSearch and WebFetch, and nothing to write with', ['WebSearch', 'WebFetch'].every((t) => r.init?.tools.includes(t)) && !['Edit', 'Write', 'Bash'].some((t) => r.init?.tools.includes(t)), (r.init?.tools ?? []).join(','));
 }
 // A question in Work: the real binary writes where a filing may, and is refused the rules file.
 {

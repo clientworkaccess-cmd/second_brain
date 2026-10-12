@@ -710,6 +710,7 @@ async function answer() {
     ...entries.map((entry) => `- **${entry.name}**: ${entry.summary || 'see the page'}. See [[${entry.name}]].`),
     ``,
     `SOURCES: ${entries.map((entry) => `[[${entry.name}]]`).join(', ')}`,
+    ...(TOOLS.includes('WebSearch') ? ['Looked on the web for background (example.com).'] : []),
     ...(wrote ? [`WROTE: [[${wrote}]]`] : []),
   ];
   const text = await stream(lines.map((line) => `${line}\n`));

@@ -1,4 +1,6 @@
 import type { Metadata, Viewport } from 'next';
+// The face replies are set in: Source Serif 4, an open face, shipped with the app so nothing is fetched from elsewhere.
+import '@fontsource-variable/source-serif-4';
 import './globals.css';
 
 export const metadata: Metadata = {

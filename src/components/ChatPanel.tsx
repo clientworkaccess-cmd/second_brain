@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { AudioLines, Mic, SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2, Volume2 } from 'lucide-react';
+import { ArrowDown, AudioLines, Globe, Mic, SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2, Volume2 } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
 import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '@/lib/models';
@@ -36,6 +36,8 @@ export interface ChatTurn {
   commit?: string | null;
   undone?: boolean;
   findings?: Finding[];
+  /** The reader let it look on the web for this message. */
+  web?: boolean;
 }
 
 export interface ChatConversation {
@@ -58,6 +60,12 @@ export interface ChatConversation {
  * or Work (it may write pages, as a filing does; what it wrote is checked,
  * kept as one restore point, and can be undone from here). And the model
  * (lib/models.ts). Both are remembered with the conversation.
+ *
+ * In Discuss the reader can switch the web on, message by message; never in
+ * Work. What the reader said is set apart from the replies, in a box to the
+ * right, as in Claude; replies are set in a serif face. The view follows a
+ * reply as it arrives only while the reader is at the bottom, and an arrow
+ * brings them back down.
  *
  * Voice, where the browser has it (components/useVoice.ts): the microphone
  * dictates into the question box; an answer can be read aloud; and "Talk" is
@@ -88,6 +96,11 @@ export function ChatPanel({
   const [mode, setMode] = useState<Mode>(conversation?.mode ?? 'discuss');
   const [model, setModel] = useState<ModelChoice['id']>((conversation?.model as ModelChoice['id'] | null) ?? DEFAULT_MODEL);
   const [undoing, setUndoing] = useState<number | null>(null);
+  const [web, setWeb] = useState(false);
+  const [away, setAway] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** Whether the reader is at the bottom: only then does the view follow a reply as it arrives. */
+  const followRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
@@ -128,9 +141,42 @@ export function ChatPanel({
     }
   };
 
+  // Whether the web is on is remembered per wiki, like the model.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    try {
+      setWeb(localStorage.getItem(`sb-chat-web:${cluster}`) === 'on');
+    } catch {
+      /* off, then */
+    }
+  }, [cluster]);
+  const chooseWeb = (next: boolean): void => {
+    setWeb(next);
+    try {
+      localStorage.setItem(`sb-chat-web:${cluster}`, next ? 'on' : 'off');
+    } catch {
+      /* lasts for this page */
+    }
+  };
+
+  // Follow the reply down only while the reader is already at the bottom; someone reading further up is left there.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (followRef.current && el) el.scrollTop = el.scrollHeight;
   }, [turns]);
+  const onScroll = (): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const fromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    followRef.current = fromBottom < 80;
+    setAway(fromBottom > 240);
+  };
+  const toBottom = (): void => {
+    followRef.current = true;
+    setAway(false);
+    // Glides when the page is in view; a page in the background does not animate, so there it jumps.
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: document.hidden ? 'auto' : 'smooth' });
+  };
 
   const changed = (): void => {
     window.dispatchEvent(new Event(CONVERSATIONS_CHANGED));
@@ -149,7 +195,10 @@ export function ChatPanel({
 
     setQuestion('');
     setBusy(true);
-    setTurns((t) => [...t, { question: text, answer: '', sources: [], done: false, mode, model }]);
+    const useWeb = mode === 'discuss' && web;
+    // Sending a message brings the reader to it.
+    followRef.current = true;
+    setTurns((t) => [...t, { question: text, answer: '', sources: [], done: false, mode, model, web: useWeb }]);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -160,7 +209,7 @@ export function ChatPanel({
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cluster, question: text, conversation: id, model: modelChoice(model), mode }),
+        body: JSON.stringify({ cluster, question: text, conversation: id, model: modelChoice(model), mode, web: useWeb }),
         signal: controller.signal,
       });
 
@@ -288,7 +337,7 @@ export function ChatPanel({
 
   return (
     <div className="chat">
-      <div className="chat-scroll">
+      <div className="chat-scroll" ref={scrollRef} onScroll={onScroll}>
         <div className="content space-y-7">
           {turns.length === 0 ? (
             <p className="max-w-prose text-body text-muted">
@@ -308,16 +357,21 @@ export function ChatPanel({
 
           {turns.map((turn, i) => (
             <section key={i}>
-              <h2 className="flex items-baseline gap-2 text-body font-semibold text-ink">
+              <div className="chat-said">
                 {turn.mode === 'work' && (
                   <span className="chat-mode-tag" title="Said in Work: it could change the brain">
                     Work
                   </span>
                 )}
-                <span>{turn.question}</span>
-              </h2>
+                {turn.web && (
+                  <span className="chat-mode-tag" title="It could look on the web for this message">
+                    Web
+                  </span>
+                )}
+                <h2 className="chat-said-bubble">{turn.question}</h2>
+              </div>
 
-              <div className="mt-2">
+              <div className="chat-reply mt-3">
                 {turn.error ? (
                   <p role="alert" className="text-body text-danger">
                     {turn.error}
@@ -424,6 +478,12 @@ export function ChatPanel({
         </div>
       </div>
 
+      {away && (
+        <button type="button" className="chat-to-bottom" onClick={toBottom} aria-label="Go to the latest message" title="Go to the latest message">
+          <ArrowDown size={16} />
+        </button>
+      )}
+
       <div className="chat-composer">
         <div className="chat-composer-inner">
           {talking && (
@@ -496,6 +556,23 @@ export function ChatPanel({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className={`chat-voice-button wide${web && mode === 'discuss' ? ' active' : ''}`}
+            aria-pressed={web && mode === 'discuss'}
+            disabled={busy || mode === 'work'}
+            title={
+              mode === 'work'
+                ? 'The web is for Discuss only: a turn that can write never looks on the web'
+                : web
+                  ? 'It may look on the web for your messages. Click to keep it to the brain.'
+                  : 'Let it look on the web as well as in the brain'
+            }
+            onClick={() => chooseWeb(!web)}
+          >
+            <Globe size={14} />
+            <span>Web</span>
+          </button>
           <span className="statusbar-spacer" />
           {voice.canListen && (
             <button
