@@ -1401,6 +1401,30 @@
     color: var(--accent);
     border-color: var(--accent);
   }
+  /* Where a reply came from: closed until asked for, so it does not crowd the reply. */
+  .chat-sources {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-faint);
+  }
+  .chat-sources summary {
+    display: inline-block;
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+  }
+  .chat-sources summary::-webkit-details-marker {
+    display: none;
+  }
+  .chat-sources summary::after {
+    content: ' ›';
+  }
+  .chat-sources[open] summary::after {
+    content: ' ⌄';
+  }
+  .chat-sources summary:hover {
+    color: var(--text-muted);
+  }
   /* Discuss or Work: whether the agent may change the wiki. */
   .chat-mode {
     display: inline-flex;

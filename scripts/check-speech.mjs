@@ -14,7 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { compileLib, OUT_DIR } from './compile-lib.mjs';
 
 await compileLib();
-const { speakable, takeSentences, pickVoice, joinDictation, listenProblem } = await import(pathToFileURL(path.join(OUT_DIR, 'speech.js')).href);
+const { speakable, takeSentences, pickVoice, joinDictation, listenProblem, withoutCitations } = await import(pathToFileURL(path.join(OUT_DIR, 'speech.js')).href);
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -34,6 +34,14 @@ is('a code block is not read out', speakable('Run this:\n\n```bash\nnpm run chec
 is('a table is said as its cells', speakable('| Name | Days |\n| --- | --- |\n| Refund | 5 |'), 'Name, Days, Refund, 5');
 is('an image is not said', speakable('Here ![a chart](raw/assets/c.png) it is.'), 'Here it is.');
 is('nothing gives nothing', speakable('\n\nSOURCES: [[A]]\n'), '');
+
+// ------------------------------------------- citations are not in a reply
+is('a citation after a sentence is taken out', withoutCitations('Refunds take five days ([[2026-09-22-q3-board-pack]]).'), 'Refunds take five days.');
+is('several at once, and with a word in front', withoutCitations('It moved to November ([[a]], [[b]]). Costs rose (see [[c]]) and fell (Source: [[d]] and [[e]]).'), 'It moved to November. Costs rose and fell.');
+is('the footnote form too', withoutCitations('Paid in arrears.^[raw/q4-forecast-notes.md] Next.'), 'Paid in arrears. Next.');
+is('a page named in the sentence is not a citation', withoutCitations('Ask [[Mark Chen]] about ([[Refunds]] policy) first.'), 'Ask [[Mark Chen]] about ([[Refunds]] policy) first.');
+is('ordinary brackets are left alone', withoutCitations('Refunds (five days) and returns (two).'), 'Refunds (five days) and returns (two).');
+is('what is said aloud has no citations either', speakable('Refunds take five days ([[2026-09-22-q3-board-pack]]). See [[Refunds]].'), 'Refunds take five days. See Refunds.');
 
 // ------------------------------------------------------ cutting sentences
 const cut = (text, from, final) => takeSentences(text, from, final);

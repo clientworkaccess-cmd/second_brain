@@ -10,7 +10,7 @@ import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '
 import { pageHref, resolveLink } from '@/lib/wikilinks';
 import { CONVERSATIONS_CHANGED } from '@/components/conversationEvents';
 import { useVoice } from '@/components/useVoice';
-import { joinDictation } from '@/lib/speech';
+import { joinDictation, withoutCitations } from '@/lib/speech';
 
 type Mode = 'discuss' | 'work';
 
@@ -292,8 +292,8 @@ export function ChatPanel({
         <div className="content space-y-7">
           {turns.length === 0 ? (
             <p className="max-w-prose text-body text-muted">
-              Ask anything this wiki covers, and keep going: the conversation is kept, and the agent remembers what was said. Answers come with the pages
-              they were drawn from. Switch to <strong>Work</strong> to let it write pages as you go; every change it makes can be undone.
+              Talk to your brain. Ask what it knows, think something through, and keep going: the conversation is kept and what was said is remembered.
+              Switch to <strong>Work</strong> to have it write things down as you go; every change it makes can be undone.
             </p>
           ) : (
             <div className="flex items-center gap-3">
@@ -310,7 +310,7 @@ export function ChatPanel({
             <section key={i}>
               <h2 className="flex items-baseline gap-2 text-body font-semibold text-ink">
                 {turn.mode === 'work' && (
-                  <span className="chat-mode-tag" title="Asked in Work: it could change the wiki">
+                  <span className="chat-mode-tag" title="Said in Work: it could change the brain">
                     Work
                   </span>
                 )}
@@ -398,21 +398,25 @@ export function ChatPanel({
               )}
 
               {turn.sources.length > 0 && (
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                  <span className="text-small text-muted">From</span>
-                  {turn.sources.map((source) => {
-                    const slug = resolveLink(known, source);
-                    return slug ? (
-                      <Link key={source} href={pageHref(cluster, slug)} className="tag">
-                        {source}
-                      </Link>
-                    ) : (
-                      <span key={source} className="tag">
-                        {source}
-                      </span>
-                    );
-                  })}
-                </div>
+                <details className="chat-sources">
+                  <summary>
+                    {turn.sources.length} {turn.sources.length === 1 ? 'source' : 'sources'}
+                  </summary>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {turn.sources.map((source) => {
+                      const slug = resolveLink(known, source);
+                      return slug ? (
+                        <Link key={source} href={pageHref(cluster, slug)} className="tag">
+                          {source}
+                        </Link>
+                      ) : (
+                        <span key={source} className="tag">
+                          {source}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </details>
               )}
             </section>
           ))}
@@ -458,11 +462,11 @@ export function ChatPanel({
                 void ask();
               }
             }}
-            placeholder={mode === 'work' ? 'Ask, or say what to write down…' : `Ask something the ${cluster} wiki covers…`}
+            placeholder={mode === 'work' ? 'Ask, or say what to write down…' : 'Message your brain…'}
             aria-label="Your question"
           />
           <div className="chat-composer-row">
-          <div className="chat-mode" role="radiogroup" aria-label="Whether the agent may change the wiki">
+          <div className="chat-mode" role="radiogroup" aria-label="Whether it may change the brain">
             {(['discuss', 'work'] as const).map((m) => (
               <button
                 key={m}
@@ -556,7 +560,7 @@ function finalise(turn: ChatTurn): ChatTurn {
   return { ...turn, sources, done: true };
 }
 
-/** The SOURCES and WROTE lines are shown as links, not as text. */
+/** The SOURCES and WROTE lines are shown apart from the reply, and a reply carries no citations in its text. */
 function stripTrailers(answer: string): string {
-  return answer.replace(/^(SOURCES|WROTE):.*$/gm, '').trim();
+  return withoutCitations(answer.replace(/^(SOURCES|WROTE):.*$/gm, '')).trim();
 }

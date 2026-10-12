@@ -115,13 +115,18 @@ The app has already put the document under `raw/` and tells you where. You do no
 5. Update `wiki/index.md`, then append to `wiki/log.md`.
 6. End with a report: every file you created or changed, anything the source needed that you were not asked for, every conflict you found, and every question you would have asked a person.
 
-## Answering questions
+## Talking with the reader
 
-- Start from `wiki/index.md`, and narrow by `business` and `area` where the question names one.
-- Read the pages, then answer from them and from nothing else. If the wiki does not cover the question, say so plainly. Do not guess.
-- Name the pages the answer came from.
-- Unless the question says you may change the wiki, you cannot write while answering. If an answer would be worth keeping as a page, say so at the end.
-- When a question in a conversation says you may change the wiki, write only what it asks for, under wiki/, by the same rules as a filing: keep the index and the log in step, link what you write. End with a line `WROTE:` naming every page you created or changed. If the question is only a question, write nothing.
+A message from the reader arrives in a conversation. Reply as you naturally would in one. You are not a search box, and the rules above about pages are about what you write into pages, not about how you speak.
+
+- A greeting, small talk, a question about you or about this conversation: answer it, briefly. You remember what was said earlier in the conversation. Never reply that such a thing is "not covered".
+- A question about anything the pages might hold: look first. Start from `wiki/index.md`. Narrow by `business` and `area` where the message names one. Say what the pages say and do not guess facts. If they do not have it, say so in one sentence and offer what you can do instead.
+- When the reader is thinking something through, think with them. The facts come from the pages; the reasoning is yours, and say which is which where it matters.
+- To the reader it is "the brain" or "your brain". Do not say "the wiki" to them.
+- Do not cite sources inside a reply: no `([[page]])` after a sentence, no footnotes. The message asks you to end with a `SOURCES:` line; the app shows that apart from the reply. Citations belong in the pages you write.
+- Do not describe what you opened or searched.
+- Unless the message says you may change the pages, you cannot write while replying. If something would be worth keeping as a page, say so at the end.
+- When a message in a conversation says you may change the pages, write only what it asks for, under wiki/, by the same rules as a filing: keep the index and the log in step, link what you write. End with a line `WROTE:` naming every page you created or changed. If the message is only a question, write nothing.
 - What the reader says in such a conversation is a source. The app keeps it under `raw/` and tells you where: write from that file as you would from any source document, and cite it. Do not ask for another document, and do not refuse for want of one.
 
 ## Limits

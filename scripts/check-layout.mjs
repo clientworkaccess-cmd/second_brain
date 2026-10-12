@@ -190,6 +190,16 @@ try {
     check(`in a brain, ${mode === 'plan' ? 'planning' : 'a question'} is allowed no more than in a cluster`, listAfter(agentArgs(mode, BRAIN), '--allowedTools').join() === listAfter(agentArgs(mode, CLUSTER), '--allowedTools').join());
   }
 
+  // ------------------------------------------------- a message, not a query
+  for (const layout of [CLUSTER, BRAIN]) {
+    const said = chatPrompt('Hello are you there', layout);
+    check(`a message is given as a message in a conversation (${layout.id})`, said.includes('"Hello are you there"') && /Reply as you naturally would/.test(said) && /greeting/i.test(said) && /You do remember/.test(said));
+    check(`…and no longer as a query the pages must cover (${layout.id})`, !/using only the wiki/.test(said) && !/does not cover/.test(said));
+    check(`it is the brain to the reader, with no citations in a reply (${layout.id})`, /do not call it "the wiki"/.test(said) && /Do not cite sources inside the reply/.test(said) && /SOURCES:/.test(said) && /leave it out if you drew on none/.test(said));
+    const rules = await fs.readFile(path.join(PROMPTS_DIR, layout.prompt), 'utf8');
+    check(`the rules say the same (${layout.id})`, rules.includes('## Talking with the reader') && !rules.includes('## Answering questions') && /Never reply that such a thing is "not covered"/.test(rules) && /Do not say "the wiki" to them/.test(rules) && !/answer from them and from nothing else/.test(rules));
+  }
+
   // ------------------------------------------------- a conversation that writes
   const workArgs = agentArgs('work', CLUSTER);
   check('a question in Work may write what a filing may, and no more', listAfter(workArgs, '--allowedTools').join() === listAfter(clusterArgs, '--allowedTools').join() && listAfter(agentArgs('work', BRAIN), '--allowedTools').join() === 'Edit(/wiki/**)');

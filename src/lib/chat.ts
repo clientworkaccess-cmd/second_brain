@@ -1,7 +1,17 @@
 import { indexFile, logFile, type Layout } from './layout';
 
 /**
- * The question, as the agent is given it.
+ * The reader's message, as the agent is given it.
+ *
+ * It is a message in a conversation, not a query to a search box: a greeting
+ * is answered as a greeting, a question about the conversation as that, and
+ * only a question about what the pages might hold sends the agent to read
+ * them. An earlier wording ("answer using only the wiki; if it does not cover
+ * it, say so") had it reply to "hello" that the wiki did not cover greetings.
+ *
+ * To the reader it is their brain, never "the wiki", and a reply carries no
+ * citations in its text: the pages it drew on go on a SOURCES line, which the
+ * app shows apart from the reply.
  *
  * In lib rather than in the route so that the check scripts ask the real binary
  * the same thing the app does.
@@ -9,14 +19,20 @@ import { indexFile, logFile, type Layout } from './layout';
 export function chatPrompt(question: string, layout: Layout): string {
   const example = layout.links === 'slug' ? '[[page-file-name]], [[other-page]]' : '[[Page Name]], [[Other Page]]';
   return [
-    `Answer this question using only the wiki in your working directory: "${question}"`,
+    `The reader's message, in a conversation with you about their brain (the knowledge base in your working directory): "${question}"`,
     ``,
-    `Start from ${indexFile(layout)} and follow [[wikilinks]] to the pages that matter. Do not guess —`,
-    `if the wiki does not cover it, say so plainly.`,
+    `Reply as you naturally would in a conversation. A greeting, small talk, or a question about you or about this`,
+    `conversation: just answer it, briefly. You do remember what was said earlier in this conversation.`,
     ``,
-    `Reply with the answer only. Do not describe what you are doing or which files you opened.`,
+    `When the message asks about anything the brain might hold (their businesses, people, plans, decisions), look first.`,
+    `Start from ${indexFile(layout)} and follow [[wikilinks]] to the pages that matter. Say what is there and do not guess facts.`,
+    `If it is not there, say so in one sentence and offer what you can do instead. When they are thinking something`,
+    `through, think with them: the facts come from the brain, the reasoning is yours.`,
     ``,
-    `End your answer with a line of the form:`,
+    `To the reader it is "the brain" or "your brain"; do not call it "the wiki". Do not describe what you opened or`,
+    `searched. Do not cite sources inside the reply: no page references in brackets after a sentence, no footnotes.`,
+    ``,
+    `If you drew on pages, end with a line of this form, and leave it out if you drew on none:`,
     `SOURCES: ${example}`,
   ].join('\n');
 }
@@ -43,9 +59,10 @@ export function workPrompt(question: string, layout: Layout, source: string | nu
           ``,
         ]
       : []),
-    `In this conversation you may change the wiki. Do so only when the question asks for it: to write something down,`,
-    `add a page, or change one. If the question is only a question, answer it and write nothing.`,
-    `When you write, follow the wiki's rules as a filing does: keep ${indexFile(layout)} and ${logFile(layout)} in step.`,
+    `In this conversation you may change the brain's pages. Do so only when the message asks for it: to write something`,
+    `down, add a page, or change one. If it is only a question, answer it and write nothing.`,
+    `When you write, follow the rules for pages as a filing does (citations belong in pages, though not in your reply):`,
+    `keep ${indexFile(layout)} and ${logFile(layout)} in step.`,
     `Then end with a line of the form:`,
     `WROTE: ${example}, ...`,
   ].join('\n');
@@ -78,7 +95,7 @@ export function recapPrompt(turns: RecapTurn[]): string {
   while (said.length > 0 && said.join('\n\n').length > RECAP_MAX) said.shift();
   if (said.length === 0) return '';
   return [
-    'This question continues a conversation about this wiki. What was said so far, oldest first:',
+    'This message continues a conversation you have been having with the reader. What was said so far, oldest first:',
     '',
     said.join('\n\n'),
     '',

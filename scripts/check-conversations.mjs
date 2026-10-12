@@ -113,7 +113,7 @@ try {
   check('the sources are read off the answer', JSON.stringify(sourcesOf('Text\nSOURCES: [[A]], [[B c]]')) === '["A","B c"]' && sourcesOf('nothing').length === 0);
   for (const layout of [CLUSTER, BRAIN]) {
     const w = workPrompt('Write it down', layout);
-    check(`a question that may write says so, and asks for a WROTE line (${layout.id})`, w.startsWith(chatPrompt('Write it down', layout)) && /may change the wiki/.test(w) && /WROTE:/.test(w) && w.includes(layout.id === 'brain' ? 'wiki/index.md' : 'index.md'));
+    check(`a question that may write says so, and asks for a WROTE line (${layout.id})`, w.startsWith(chatPrompt('Write it down', layout)) && /may change the brain/.test(w) && /WROTE:/.test(w) && w.includes(layout.id === 'brain' ? 'wiki/index.md' : 'index.md'));
   }
 
   // ------------------------------------------- the conversation as a source

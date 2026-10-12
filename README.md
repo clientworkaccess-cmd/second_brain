@@ -375,6 +375,16 @@ every block against the rules, and files that would steer a run. Nothing is
 changed; a person reads the report and decides. The check after a filing
 looks only at what that filing touched.
 
+**A message, not a query.** What the reader types in Ask is given to the agent
+as a message in a conversation (`chatPrompt` in `src/lib/chat.ts`, and
+"Talking with the reader" in the two rules files): a greeting is answered as a
+greeting, a question about the conversation as that, and only a question about
+what the pages might hold sends it to read them. To the reader it is "the
+brain", not "the wiki". A reply carries no citations in its text; the pages it
+drew on come on a `SOURCES:` line, which the app shows under the reply, closed
+until opened. Citations that slip into a reply anyway are taken out before it
+is shown or said (`withoutCitations` in `src/lib/speech.ts`).
+
 **Conversations are kept.** Every question belongs to a conversation, and the
 app keeps every conversation, with each question and answer, under
 `.dashboard/conversations/<wiki>/`: they are listed in the sidebar's Chats tab,
