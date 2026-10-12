@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowDown, AudioLines, Globe, Mic, SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2, Volume2 } from 'lucide-react';
+import { ArrowDown, AudioLines, BookOpen, Globe, Mic, SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2, Volume2, X } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
 import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '@/lib/models';
@@ -98,6 +98,9 @@ export function ChatPanel({
   const [undoing, setUndoing] = useState<number | null>(null);
   const [web, setWeb] = useState(false);
   const [away, setAway] = useState(false);
+  /** The turn whose sources are open in the modal, or null. */
+  const [sourcesFor, setSourcesFor] = useState<number | null>(null);
+  const sourcesRef = useRef<HTMLDialogElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   /** Whether the reader is at the bottom: only then does the view follow a reply as it arrives. */
   const followRef = useRef(true);
@@ -119,6 +122,13 @@ export function ChatPanel({
     box.style.height = 'auto';
     box.style.height = `${Math.min(box.scrollHeight, 220)}px`;
   }, [question]);
+  // A native modal: it traps focus, closes on Escape and dims what is behind it.
+  useEffect(() => {
+    const dialog = sourcesRef.current;
+    if (!dialog) return;
+    if (sourcesFor !== null && !dialog.open) dialog.showModal();
+    else if (sourcesFor === null && dialog.open) dialog.close();
+  }, [sourcesFor]);
   const known = useMemo(() => new Map(titles), [titles]);
   const bySlug = useMemo(() => new Map(titles.map(([title, slug]) => [slug, title])), [titles]);
 
@@ -430,7 +440,7 @@ export function ChatPanel({
                 </ul>
               )}
 
-              {turn.done && !turn.error && (turn.answeredBy || turn.model || (voice.canSpeak && turn.answer)) && (
+              {turn.done && !turn.error && (turn.answeredBy || turn.model || (voice.canSpeak && turn.answer) || turn.sources.length > 0) && (
                 <p className="mt-2 flex items-center gap-2 text-small text-faint">
                   {voice.canSpeak && turn.answer && !talking && (
                     <button
@@ -448,29 +458,15 @@ export function ChatPanel({
                     {familyOf(turn.answeredBy) ?? MODELS.find((m) => m.id === turn.model)?.label}
                     {turn.model && turn.model !== 'default' && familyOf(turn.answeredBy) && familyOf(turn.answeredBy)?.toLowerCase() !== turn.model ? ` (asked for ${MODELS.find((m) => m.id === turn.model)?.label})` : ''}
                   </span>
+                  {turn.sources.length > 0 && (
+                    <button type="button" className="chat-sources-tag" aria-haspopup="dialog" title="The pages this reply was drawn from" onClick={() => setSourcesFor(i)}>
+                      <BookOpen size={12} />
+                      <span>
+                        {turn.sources.length} {turn.sources.length === 1 ? 'source' : 'sources'}
+                      </span>
+                    </button>
+                  )}
                 </p>
-              )}
-
-              {turn.sources.length > 0 && (
-                <details className="chat-sources">
-                  <summary>
-                    {turn.sources.length} {turn.sources.length === 1 ? 'source' : 'sources'}
-                  </summary>
-                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                    {turn.sources.map((source) => {
-                      const slug = resolveLink(known, source);
-                      return slug ? (
-                        <Link key={source} href={pageHref(cluster, slug)} className="tag">
-                          {source}
-                        </Link>
-                      ) : (
-                        <span key={source} className="tag">
-                          {source}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </details>
               )}
             </section>
           ))}
@@ -483,6 +479,44 @@ export function ChatPanel({
           <ArrowDown size={16} />
         </button>
       )}
+
+      <dialog
+        ref={sourcesRef}
+        className="sources-modal"
+        aria-label="Sources"
+        onClose={() => setSourcesFor(null)}
+        // A click on the dimmed backdrop lands on the dialog itself, not on its body.
+        onClick={(e) => {
+          if (e.target === e.currentTarget) setSourcesFor(null);
+        }}
+      >
+        <div className="sources-modal-body">
+          <div className="sources-modal-head">
+            <span>Sources</span>
+            <button type="button" className="sources-modal-close" aria-label="Close" onClick={() => setSourcesFor(null)}>
+              <X size={14} />
+            </button>
+          </div>
+          <ul className="sources-modal-list">
+            {(sourcesFor !== null ? (turns[sourcesFor]?.sources ?? []) : []).map((source) => {
+              const slug = resolveLink(known, source);
+              return (
+                <li key={source}>
+                  {slug ? (
+                    <Link href={pageHref(cluster, slug)} onClick={() => setSourcesFor(null)}>
+                      {source}
+                    </Link>
+                  ) : (
+                    <span className="text-faint" title="No page by this name in the brain">
+                      {source}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </dialog>
 
       <div className="chat-composer">
         <div className="chat-composer-inner">
