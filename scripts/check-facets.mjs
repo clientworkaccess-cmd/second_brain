@@ -91,7 +91,7 @@ try {
   check('a business the registry does not have is named', problems({ data: { business: ['made-up'] }, facets: { business: ['made-up'], area: ['finance'] } }).join() === 'has the business "made-up", which is not in wiki/businesses.md');
   check('too many areas are counted', problems({ data: { area: ['a', 'b', 'c', 'd'] }, facets: { business: ['group'], area: ['finance', 'sales', 'people', 'legal'] } }).join() === 'has 4 areas; at most 3 are allowed');
   check('a type that is not the folder’s is said', problems({ type: 'concept', data: { type: 'concept' } }).join() === 'has the type "concept" but is in the folder for entities');
-  check('a type the wiki does not have is said', problems({ type: 'memo', data: { type: 'memo' } }).join() === 'has the type "memo", which this wiki does not have');
+  check('a type the wiki does not have is said', problems({ type: 'memo', data: { type: 'memo' } }).join() === 'has the type "memo", which this brain does not have');
   const { area: _area, ...withoutArea } = good.data;
   check('a missing facet is said', pageProblems({ ...good, data: withoutArea, facets: { business: ['group'] } }, BRAIN, wiki.facets).join() === 'has no area');
   check('a date that is not a date is said', problems({ data: { created: 'last week' } }).join() === 'has a created that is not a date (YYYY-MM-DD)');

@@ -546,6 +546,24 @@ try {
   check('a turn in Work never gets the web, even when asked', workWeb.list.at(-1)?.name === 'end' && workWeb.list.at(-1)?.data.web === false && !tokensOf(workWeb).includes('Looked on the web'), JSON.stringify(workWeb.list.at(-1)?.data));
   check('the record says which turns could use the web', (await recordOf(convOf(onWeb))).turns[0].web === true && (await recordOf(convOf(offWeb))).turns[0].web === false);
 
+  // The owner's memory: learned in the background after a turn, given to every turn after it.
+  const memoryFile = path.join(app.wiki, '.dashboard', 'memory', 'core.md');
+  const taught = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'From now on always lead with the cash position.' }), cookie));
+  let learned = '';
+  for (let i = 0; i < 60 && !learned.includes('cash position'); i++) {
+    await new Promise((r) => setTimeout(r, 250));
+    learned = await fs.readFile(memoryFile, 'utf8').catch(() => '');
+  }
+  check('a preference said in a conversation is learned in the background', taught.list.at(-1)?.name === 'end' && learned.includes('· preference · From now on always lead with the cash position.'), learned.slice(0, 200));
+  check('the reader sees nothing of the learning', !JSON.stringify(taught.list).includes('"ops"') && !tokensOf(taught).includes('TASK: LEARN'));
+  const remembered = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'What do you remember?' }), cookie));
+  check('a later turn, in another conversation, is given it', tokensOf(remembered).includes('From now on always lead with the cash position.'), tokensOf(remembered).slice(0, 200));
+  const nobodyKnown = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Who am I?' }), cookie));
+  check('without a profile, a turn is told it is talking with the owner', tokensOf(nobodyKnown).includes('the owner of the businesses this brain is about'), tokensOf(nobodyKnown).slice(0, 200));
+  await fs.writeFile(path.join(app.wiki, '.dashboard', 'profile.md'), 'You are talking directly with Sam Example, who owns a test business.\n');
+  const known = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Who am I?' }), cookie));
+  check('with one on the server, every turn is told who it is talking to', tokensOf(known).includes('Sam Example'), tokensOf(known).slice(0, 200));
+
   // Names, and deleting.
   const renameRes = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: workId, title: 'Refund notes' }), method: 'PATCH' }, cookie));
   check('a conversation can be renamed', renameRes.status === 200 && (await recordOf(workId)).title === 'Refund notes', String(renameRes.status));
@@ -598,7 +616,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web', 'memory-changed'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 

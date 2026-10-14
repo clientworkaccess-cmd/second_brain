@@ -31,6 +31,12 @@
  * conversation in front of it (the app's, when the session was lost) builds on
  * the last question the recap names.
  *
+ * A learning run (`TASK: LEARN`, lib/learn.ts) keeps what the owner's message
+ * says with "always", "never", "from now on" or "I prefer" as a preference, and
+ * "forget that" deletes the first entry. A conversation turn asked "what do you
+ * remember" answers with the memory it was given in its system prompt, and "who
+ * am I" with the profile, so the checks can see both reach the agent.
+ *
  * A conversation is kept the way the real binary keeps one: `--session-id X`
  * starts it and `--resume X` continues it, from a file under Claude's folder
  * (or the temp folder when there is none). A resumed answer says what was
@@ -121,8 +127,8 @@ if (FAIL === 'limit') {
  * is what silently turned every local ingest into a chat answer for six weeks
  * when one sentence of a prompt was reworded.
  */
-const marker = prompt.match(/^TASK:\s*(PLAN|EXECUTE)\s*$/im)?.[1]?.toUpperCase();
-const MODE = marker === 'PLAN' ? 'plan' : marker === 'EXECUTE' ? 'execute' : 'answer';
+const marker = prompt.match(/^TASK:\s*(PLAN|EXECUTE|LEARN)\s*$/im)?.[1]?.toUpperCase();
+const MODE = marker === 'PLAN' ? 'plan' : marker === 'EXECUTE' ? 'execute' : marker === 'LEARN' ? 'learn' : 'answer';
 
 // A planning run with no path to write to would "succeed" having produced
 // nothing, and the app would blame the agent. Fail loudly instead.
@@ -134,6 +140,7 @@ if (MODE === 'plan' && !planFile) {
 let turns = 0;
 if (MODE === 'plan') await makePlan();
 else if (MODE === 'execute') await ingest();
+else if (MODE === 'learn') await learn();
 else await answer();
 
 // ---------------------------------------------------------------- events
@@ -676,6 +683,32 @@ ${label} (filed ${new Date().toISOString()})
  * It used to know three cluster names by heart and said nothing of use about
  * any other, which is every cluster a person actually creates.
  */
+/** The system prompt this run was given on top of Claude Code's own: the wiki's rules, and for a conversation turn its context. */
+async function systemPrompt() {
+  const file = valueOf('--append-system-prompt-file');
+  return file ? fs.readFile(file, 'utf8').catch(() => '') : '';
+}
+
+/** A section of the system prompt, by its heading, up to the next one. */
+function section(text, heading) {
+  const at = text.indexOf(`## ${heading}`);
+  if (at < 0) return '';
+  const rest = text.slice(at + heading.length + 3);
+  const end = rest.search(/^## /m);
+  return (end < 0 ? rest : rest.slice(0, end)).trim();
+}
+
+/** The memory's learning run: answers with operations, as the real one is asked to. */
+async function learn() {
+  const said = prompt.match(/THE OWNER'S MESSAGE[^\n]*\n"""\n([\s\S]*?)\n"""/)?.[1] ?? '';
+  const ops = [];
+  if (/\b(always|never|from now on|i prefer)\b/i.test(said)) ops.push({ op: 'add', kind: 'preference', text: said.trim() });
+  if (/\bforget that\b/i.test(said)) ops.push({ op: 'delete', index: 1 });
+  const text = JSON.stringify({ ops });
+  emit({ type: 'assistant', message: message([{ type: 'text', text }]), parent_tool_use_id: null });
+  finish(text);
+}
+
 async function answer() {
   const fromSession = await earlier();
   // The app's recap, when the binary's own session was gone.
@@ -684,6 +717,13 @@ async function answer() {
     : [];
   const before = fromSession.length ? fromSession : recap;
   const question = prompt.match(/The reader's message[^:]*: "([^"]*)"/)?.[1] ?? prompt.split('\n')[0];
+  if (/what do you remember|who am i/i.test(question)) {
+    const system = await systemPrompt();
+    const kept = /who am i/i.test(question) ? section(system, 'Who you are talking to') : section(system, 'What the owner has told you before');
+    const text = await stream([`${kept || 'Nothing yet.'}\n`]);
+    finish(text.trim());
+    return;
+  }
   const wrote = TOOLS.includes('Edit') && /\b(write|note|record|save)\b/i.test(question) ? await writeDown(question) : null;
   if (KEPT) {
     await fs.mkdir(SESSIONS, { recursive: true });

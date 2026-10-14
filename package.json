@@ -26,9 +26,10 @@
     "check:graph": "node scripts/check-graph.mjs",
     "check:conversations": "node scripts/check-conversations.mjs",
     "check:speech": "node scripts/check-speech.mjs",
+    "check:memory": "node scripts/check-memory.mjs",
     "check:live": "node scripts/check-live.mjs",
     "check:real": "node scripts/check-real.mjs",
-    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets && npm run check:rename && npm run check:graph && npm run check:conversations && npm run check:speech"
+    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets && npm run check:rename && npm run check:graph && npm run check:conversations && npm run check:speech && npm run check:memory"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

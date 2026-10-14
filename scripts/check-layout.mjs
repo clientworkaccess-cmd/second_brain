@@ -202,17 +202,20 @@ try {
 
   // ------------------------------------------------- a conversation that writes
   const workArgs = agentArgs('work', CLUSTER);
-  check('a question in Work may write what a filing may, and no more', listAfter(workArgs, '--allowedTools').join() === listAfter(clusterArgs, '--allowedTools').join() && listAfter(agentArgs('work', BRAIN), '--allowedTools').join() === 'Edit(/wiki/**)');
+  // Beyond what a filing has, a conversation turn may read the owner's memory topics, and nothing more of it.
+  const MEMORY_READ = /^Read\(\/\/.*memory\/topics\/\*\*\)$/;
+  const allowedBeyondMemory = (args) => listAfter(args, '--allowedTools').filter((rule) => !MEMORY_READ.test(rule));
+  check('a question in Work may write what a filing may, and no more', allowedBeyondMemory(workArgs).join() === listAfter(clusterArgs, '--allowedTools').join() && allowedBeyondMemory(agentArgs('work', BRAIN)).join() === 'Edit(/wiki/**)' && listAfter(workArgs, '--allowedTools').some((rule) => MEMORY_READ.test(rule)));
   check('…with the same tools as a filing', valueAfter(workArgs, '--tools') === valueAfter(clusterArgs, '--tools'));
   check('…and every deny rule a filing has', listAfter(workArgs, '--disallowedTools').join() === listAfter(clusterArgs, '--disallowedTools').join());
-  check('a question in Discuss still has nothing to write with', !valueAfter(agentArgs('chat', CLUSTER), '--tools').includes('Edit') && !agentArgs('chat', CLUSTER).includes('--allowedTools'));
+  check('a question in Discuss still has nothing to write with', !valueAfter(agentArgs('chat', CLUSTER), '--tools').includes('Edit') && allowedBeyondMemory(agentArgs('chat', CLUSTER)).length === 0);
   const conversation = { id: '11111111-2222-4333-8444-555555555555', resume: true };
   check('a question in Work can be part of a conversation', valueAfter(agentArgs('work', CLUSTER, conversation), '--resume') === conversation.id);
   check('a filing still cannot', (() => { try { agentArgs('execute', CLUSTER, conversation); return false; } catch { return true; } })());
 
   // ------------------------------------------------------------------ the web
   const webArgs = agentArgs('chat', CLUSTER, null, null, true);
-  check('a question the reader switched the web on for may search and fetch', valueAfter(webArgs, '--tools') === 'Read,Glob,Grep,WebSearch,WebFetch' && listAfter(webArgs, '--allowedTools').join() === 'WebSearch,WebFetch');
+  check('a question the reader switched the web on for may search and fetch', valueAfter(webArgs, '--tools') === 'Read,Glob,Grep,WebSearch,WebFetch' && allowedBeyondMemory(webArgs).join() === 'WebSearch,WebFetch');
   check('…and still has nothing to write with, and no shell', !/Edit|Write|Bash/.test(valueAfter(webArgs, '--tools')) && listAfter(webArgs, '--disallowedTools').includes('Bash') && !listAfter(webArgs, '--disallowedTools').includes('WebSearch'));
   check('without the switch, the web stays denied', listAfter(agentArgs('chat', CLUSTER), '--disallowedTools').includes('WebSearch') && listAfter(agentArgs('chat', CLUSTER), '--disallowedTools').includes('WebFetch') && !valueAfter(agentArgs('chat', CLUSTER), '--tools').includes('Web'));
   for (const mode of ['work', 'execute', 'plan']) {

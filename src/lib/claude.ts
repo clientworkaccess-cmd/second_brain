@@ -1,9 +1,10 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync, type WriteStream } from 'node:fs';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { APP_DIR, CLAUDE_CONFIG_DIR, CLAUDE_MODEL, PROMPTS_DIR, claudeArgs, claudeCommand, streamLogDir } from './config';
+import { APP_DIR, CLAUDE_CONFIG_DIR, CLAUDE_MODEL, MEMORY_DIR, PROMPTS_DIR, claudeArgs, claudeCommand, streamLogDir } from './config';
 import { StreamParser, type AgentResult } from './claude-stream';
 import type { Layout } from './layout';
 
@@ -32,8 +33,12 @@ import type { Layout } from './layout';
  *    credential this app is meant to run on.
  */
 
-/** `work`: a question in a conversation that may change the wiki. It writes what a filing may write. */
-export type AgentMode = 'plan' | 'execute' | 'chat' | 'work';
+/**
+ * `work`: a question in a conversation that may change the wiki. It writes what a filing may write.
+ * `learn`: the background run that keeps the owner's memory (lib/learn.ts). No tools at all: it reads
+ * what it is given and answers with the changes, which the app makes.
+ */
+export type AgentMode = 'plan' | 'execute' | 'chat' | 'work' | 'learn';
 
 /**
  * A conversation: the one thing a run may keep.
@@ -85,13 +90,21 @@ function profile(mode: AgentMode, layout: Layout, web = false): { tools: string[
     case 'execute':
       return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
     // The web, when the reader has switched it on for a message: only here, where nothing can be written.
+    // The memory's topic files may be read, never written: the app writes them (lib/memory.ts).
     case 'chat':
-      return web ? { tools: ['Read', 'Glob', 'Grep', ...WEB], allow: [...WEB] } : { tools: ['Read', 'Glob', 'Grep'], allow: [] };
+      return web
+        ? { tools: ['Read', 'Glob', 'Grep', ...WEB], allow: [...WEB, MEMORY_TOPICS_READ] }
+        : { tools: ['Read', 'Glob', 'Grep'], allow: [MEMORY_TOPICS_READ] };
     // A conversation that may write writes exactly where a filing may, under the same deny rules.
     case 'work':
-      return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: layout.writable };
+      return { tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit'], allow: [...layout.writable, MEMORY_TOPICS_READ] };
+    case 'learn':
+      return { tools: [], allow: [] };
   }
 }
+
+/** Reading the memory's topic files, which are outside the wiki's folder. */
+const MEMORY_TOPICS_READ = `Read(${fromRoot(path.join(MEMORY_DIR, 'topics'))}/**)`;
 
 /** Looking on the web. Off for every run but a question in Discuss that the reader switched it on for. */
 const WEB = ['WebSearch', 'WebFetch'];
@@ -138,6 +151,11 @@ function denyRules(layout: Layout, web = false): string[] {
   ];
 }
 
+/** The rules a run is given: the wiki's, or for learning the memory's own. */
+export function rulesFile(mode: AgentMode, layout: Layout): string {
+  return path.join(PROMPTS_DIR, mode === 'learn' ? 'learn.md' : layout.prompt);
+}
+
 /** Permission rules mark a path from the filesystem root with a leading `//`. */
 function fromRoot(absolute: string): string {
   const forward = absolute.split(path.sep).join('/');
@@ -145,7 +163,15 @@ function fromRoot(absolute: string): string {
 }
 
 /** The generated part of the command line. Exported so the check scripts can hold it against the real binary. */
-export function agentArgs(mode: AgentMode, layout: Layout, conversation: Conversation | null = null, model: string | null = null, web = false): string[] {
+export function agentArgs(
+  mode: AgentMode,
+  layout: Layout,
+  conversation: Conversation | null = null,
+  model: string | null = null,
+  web = false,
+  /** The system prompt file to add instead of the wiki's rules: a conversation turn's own (see runClaude `context`). */
+  systemFile: string | null = null,
+): string[] {
   // A run that can write, or that reads a document nobody has vetted in order to file it, never gets the web:
   // with both, one planted line could send pages out, or bring instructions in.
   if (web && mode !== 'chat') throw new Error('Only a question that cannot write may look on the web');
@@ -162,7 +188,7 @@ export function agentArgs(mode: AgentMode, layout: Layout, conversation: Convers
     '--tools', tools.join(','),
     ...(allow.length > 0 ? ['--allowedTools', ...allow] : []),
     '--disallowedTools', ...new Set(denyRules(layout, web)),
-    '--append-system-prompt-file', path.join(PROMPTS_DIR, layout.prompt),
+    '--append-system-prompt-file', systemFile ?? rulesFile(mode, layout),
     '--setting-sources', '',
     '--strict-mcp-config',
     '--disable-slash-commands',
@@ -220,8 +246,20 @@ export function agentInvocation(
   conversation: Conversation | null = null,
   model: string | null = null,
   web = false,
+  systemFile: string | null = null,
 ): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
-  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation, model, web)], env: narrowEnv(cwd) };
+  return { command: claudeCommand(), args: [...claudeArgs(), ...agentArgs(mode, layout, conversation, model, web, systemFile)], env: narrowEnv(cwd) };
+}
+
+/**
+ * The wiki's rules and a run's own context, in one file for `--append-system-prompt-file`. In the system's
+ * temporary folder, readable by the server's user only. The system prompt is given afresh to every run, so
+ * a resumed conversation sees the memory as it is now, not as it was when the conversation began.
+ */
+function systemFileWith(rules: string, context: string): string {
+  const file = path.join(os.tmpdir(), `second-brain-${randomUUID()}.md`);
+  writeFileSync(file, `${readFileSync(rules, 'utf8').trimEnd()}\n\n${context.trim()}\n`, { encoding: 'utf8', mode: 0o600 });
+  return file;
 }
 
 /** See streamLogDir() in config.ts. A run is never failed because its record could not be kept. */
@@ -253,6 +291,11 @@ export function runClaude(opts: {
   model?: string | null;
   /** Chat only: the reader switched the web on for this message. */
   web?: boolean;
+  /**
+   * Chat and work: more for the system prompt, after the wiki's rules (who the reader is, how to think and
+   * write, the memory). Written with the rules to a file of its own for this run, removed when it ends.
+   */
+  context?: string;
   timeoutMs?: number;
   usageFile?: string;
 }): AgentRun {
@@ -261,7 +304,8 @@ export function runClaude(opts: {
   const parser = new StreamParser(opts.cwd);
   const chat = opts.mode === 'chat';
 
-  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null, opts.model ?? null, opts.web ?? false);
+  const systemFile = opts.context ? systemFileWith(rulesFile(opts.mode, opts.layout), opts.context) : null;
+  const { command, args, env } = agentInvocation(opts.mode, opts.cwd, opts.layout, opts.conversation ?? null, opts.model ?? null, opts.web ?? false, systemFile);
   const record = openStreamLog(opts.mode);
   const child = spawn(command, args, {
     cwd: opts.cwd,
@@ -280,6 +324,10 @@ export function runClaude(opts: {
   });
   // A caller that is still reading `lines` has not attached a handler yet.
   done.catch(() => {});
+  if (systemFile) {
+    const remove = (): void => rmSync(systemFile, { force: true });
+    done.then(remove, remove);
+  }
 
   let result: AgentResult | null = null;
   let finished = false;

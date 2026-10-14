@@ -71,10 +71,26 @@ Never on the command line:
 |---|---|---|---|
 | plan | a throwaway copy of the wiki | `Read,Glob,Grep,Write` | `Edit(/plan.json)` |
 | execute | the wiki's folder | `Read,Glob,Grep,Write,Edit` | `Edit(/**)` in a cluster; `Edit(/wiki/**)` in a brain, whose pages are in `wiki/` |
-| chat | the wiki's folder | `Read,Glob,Grep` | none |
+| chat | the wiki's folder | `Read,Glob,Grep` | `Read(//<memory>/topics/**)` |
+| work | the wiki's folder | `Read,Glob,Grep,Write,Edit` | as execute, and `Read(//<memory>/topics/**)` |
+| learn | the memory's folder | `""` (none) | none |
 
 There is no allow rule for `Read`. Reading inside the working directory needs
-none, and a bare `Read` rule would open every file the process can reach.
+none, and a bare `Read` rule would open every file the process can reach. The
+one exception is narrow: a conversation turn may read the owner's memory topic
+files (`.dashboard/memory/topics/`), which are outside its folder. It cannot
+write them; only the app does.
+
+`chat` and `work` runs are given one system prompt file made for the run: the
+wiki's rules, then `prompts/conversation.md` (who the reader is, how to think,
+how to write) and the memory's core. It is written to the system's temporary
+folder and removed when the run ends. Being given afresh to every run, a
+resumed conversation sees the memory as it is now.
+
+`learn` (lib/learn.ts) keeps the memory: `--tools ""`, `prompts/learn.md` as
+its rules, `--model sonnet` (or `MEMORY_MODEL`), `--no-session-persistence`.
+It reads its prompt and answers with JSON; the app writes the files. It cannot
+be part of a conversation and cannot have the web (`agentArgs` throws).
 
 Denied in every task:
 

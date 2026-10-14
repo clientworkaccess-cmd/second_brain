@@ -109,7 +109,7 @@ export function basisIsStale(basis: Basis, now: Snapshot): boolean {
 /** The folder a kind of page is filed in, from the folder the pages are in. */
 export function dirFor(kind: ItemKind, layout: Layout): string {
   const type = layout.types.find((t) => t.type === kind);
-  if (!type) throw new HttpError(422, `This wiki has no pages of the kind "${kind}"`);
+  if (!type) throw new HttpError(422, `This brain has no pages of the kind "${kind}"`);
   return type.dir;
 }
 

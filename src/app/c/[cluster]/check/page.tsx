@@ -45,7 +45,7 @@ export default async function CheckPage({ params }: { params: Promise<{ cluster:
           <header className="flex items-start gap-3">
             <ListChecks className="mt-1 flex-none text-accent" size={22} />
             <div className="min-w-0 flex-1">
-              <h1 className="text-title font-semibold text-ink">The wiki, held to its rules</h1>
+              <h1 className="text-title font-semibold text-ink">The brain, held to its rules</h1>
               <p className="mt-1 max-w-prose text-body text-muted">
                 {report.pages} {report.pages === 1 ? 'page' : 'pages'}, every link both ways, the index both ways, every block.
                 Nothing is changed here.
