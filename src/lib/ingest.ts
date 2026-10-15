@@ -5,13 +5,17 @@ import { audit } from './audit';
 import { HttpError, INGEST_DIR, STAGING_DIR, assertClusterName, clusterPath } from './config';
 import { ensureDashboardDirs, exists } from './clusters';
 import { readIfPresent } from './files';
-import { getJob, isActive, startPlanning, subscribe, type JobStatus } from './jobs';
+import { approvePlan, getJob, isActive, rejectPlan, startPlanning, subscribe, type JobStatus } from './jobs';
 
 /**
  * Documents sent in by n8n: the day's email as a digest, a meeting's
  * transcript. Each is filed exactly as an uploaded document is (lib/jobs.ts:
  * plan, the wiki's rules, the check afterwards, a commit, undo), one at a time
- * per brain, in the order they arrived.
+ * per brain, in the order they arrived, and without waiting for anyone: the
+ * plan is carried out as soon as it is made, whatever the brain is set to for
+ * uploads. If the brain is being written to at that moment, the plan waits and
+ * is carried out when it is free; if the brain changed under it, the document
+ * is planned again.
  *
  * Why a queue: a filing plans against the brain as it is, and one that lands
  * first makes the others' plans stale. So the next document is only planned
@@ -279,10 +283,25 @@ async function advance(cluster: string): Promise<void> {
       continue;
     }
     item.jobStatus = job.status;
-    if (isActive(job.status) || job.status === 'awaiting_approval') {
+    if (job.status === 'awaiting_approval') {
+      // Planned, but not carried out at once: the brain was being written to, or the job predates filing at once.
+      const outcome = await carryOut(job.id);
+      if (outcome === 'replan') {
+        item.state = 'queued';
+        item.jobId = null;
+        item.jobStatus = null;
+        await saveItem(item);
+        continue;
+      }
+      item.jobStatus = (await getJob(job.id))?.status ?? job.status;
       await saveItem(item);
       watch(item.jobId as string, cluster);
-      return; // Still going, or waiting for a person: the rest wait behind it.
+      return;
+    }
+    if (isActive(job.status)) {
+      await saveItem(item);
+      watch(item.jobId as string, cluster);
+      return; // Still going: the rest wait behind it.
     }
     unwatch(item.jobId as string);
     if (SETTLED_FILED.includes(job.status)) {
@@ -315,7 +334,7 @@ async function advance(cluster: string): Promise<void> {
   await fs.mkdir(STAGING_DIR, { recursive: true });
   await fs.writeFile(stagedPath, text, 'utf8');
   try {
-    const job = await startPlanning({ cluster, filename, stagedPath, originalPath: null });
+    const job = await startPlanning({ cluster, filename, stagedPath, originalPath: null, fileAtOnce: true });
     next.state = 'filing';
     next.jobId = job.id;
     next.jobStatus = job.status;
@@ -329,6 +348,28 @@ async function advance(cluster: string): Promise<void> {
     await saveItem(next);
     await fs.rm(stagedPath, { force: true });
     kick(cluster);
+  }
+}
+
+/**
+ * A plan that is waiting, carried out now. 'waiting' when the brain is still
+ * being written to (the minute's check tries again), 'replan' when the brain
+ * changed since the plan was made (it is put aside and the document planned
+ * again), 'started' when it is being written.
+ */
+async function carryOut(jobId: string): Promise<'started' | 'waiting' | 'replan'> {
+  try {
+    await approvePlan(jobId);
+    return 'started';
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/already being written to/i.test(message)) return 'waiting';
+    if (/changed since this plan was made|missing or unreadable|staged document/i.test(message)) {
+      await rejectPlan(jobId).catch(() => {});
+      return 'replan';
+    }
+    console.error('[ingest] could not carry out the plan', err);
+    return 'waiting';
   }
 }
 

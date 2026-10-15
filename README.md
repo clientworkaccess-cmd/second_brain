@@ -331,10 +331,14 @@ GET  /api/health                                    → { ok, version }, public
   Docker needs `network_mode: host` to reach 127.0.0.1.
 - **Once only.** `sourceId` is the sender's id for the document. A second one
   with the same id for the same brain is acknowledged and dropped.
-- **In turn.** Documents are filed one at a time per brain, oldest first: the
-  next is planned only when the one before is filed, or decided on by a person
-  where the brain waits for approval (a plan made beside another would be stale
-  by the time it ran). A filing interrupted by a restart is tried once more.
+- **In turn, and at once.** Documents are filed one at a time per brain, oldest
+  first: the next is planned only when the one before is filed (a plan made
+  beside another would be stale by the time it ran). Nobody approves them: the
+  plan is carried out as soon as it is made, whatever the brain is set to for
+  uploads. If the brain is being written to then (an upload, a Work turn), the
+  plan waits and is carried out when it is free; if the brain changed under it,
+  the document is planned again. A filing interrupted by a restart is tried
+  once more.
 - **On disk:** `.dashboard/ingest/items/<id>.json` and `.md` (state: queued,
   filing, filed, failed), `.dashboard/ingest/seen/` (the register).
 - Every document received is in the audit log (`ingest-received`).
