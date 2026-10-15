@@ -21,6 +21,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
   each problem with a fix, and recommends. General knowledge is allowed when it is labelled as such.
 - **Writing rules.** Replies are simple, clear, natural and easy to read the first time, and do not read like AI.
 - **Opus for thinking.** A message left to the default model that asks for analysis or advice is asked of Opus.
+- **Emails and transcripts file at once** (#30): documents sent in by n8n are planned and carried out with nobody approving; uploads keep the brain's setting.
 - **Documents sent in** (#27): `POST /api/ingest` takes documents n8n sends from the server itself (email digests, meeting transcripts) and files each like an upload, one at a time per brain, never the same `sourceId` twice. Refused if it came through nginx; optional `INGEST_TOKEN`.
 - `GET /api/health`: public, says the server is up and its version, nothing else (#26).
 - This changelog.
