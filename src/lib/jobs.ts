@@ -105,6 +105,8 @@ export interface Job {
   revision: number;
   /** True when the plan was carried out as soon as it was made, because the wiki is set to file at once. */
   automatic: boolean;
+  /** Filed as soon as it is planned whatever the wiki is set to: a document sent in by n8n (lib/ingest.ts), which nobody waits to approve. */
+  fileAtOnce: boolean;
   /** Short sha of the commit that undid this filing, when it was undone. */
   undoCommit: string | null;
   error: string | null;
@@ -269,6 +271,8 @@ export async function startPlanning(opts: {
   filename: string;
   stagedPath: string;
   originalPath: string | null;
+  /** File as soon as it is planned, whatever the wiki is set to. */
+  fileAtOnce?: boolean;
 }): Promise<Job> {
   const job: Job = {
     id: randomUUID(),
@@ -285,6 +289,7 @@ export async function startPlanning(opts: {
     originalPath: opts.originalPath,
     revision: 1,
     automatic: false,
+    fileAtOnce: opts.fileAtOnce === true,
     undoCommit: null,
     error: null,
   };
@@ -504,7 +509,7 @@ async function plan(
     // carried out now. The job never rests: the panel that follows it sees
     // planning turn into executing. Anything that stops it, such as another
     // filing holding the wiki, leaves the plan waiting for a person instead.
-    if ((await readSettings(job.cluster)).filing === 'automatic') {
+    if (job.fileAtOnce || (await readSettings(job.cluster)).filing === 'automatic') {
       await sandbox.dispose();
       sandbox = null;
       try {
@@ -822,6 +827,7 @@ async function readJobFile(file: string): Promise<Job | null> {
       originalPath: raw.originalPath ?? null,
       revision: Number(raw.revision ?? 1) || 1,
       automatic: raw.automatic === true,
+      fileAtOnce: raw.fileAtOnce === true,
       undoCommit: raw.undoCommit ?? null,
       error: raw.error ?? null,
     };
