@@ -21,6 +21,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
   each problem with a fix, and recommends. General knowledge is allowed when it is labelled as such.
 - **Writing rules.** Replies are simple, clear, natural and easy to read the first time, and do not read like AI.
 - **Opus for thinking.** A message left to the default model that asks for analysis or advice is asked of Opus.
+- `GET /api/health`: public, says the server is up and its version, nothing else (#26).
 - This changelog.
 
 ### Changed
