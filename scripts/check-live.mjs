@@ -570,7 +570,11 @@ try {
   const repeatedBody = await repeated.json();
   check('the same sourceId again is a duplicate, and is not filed twice', repeated.status === 200 && repeatedBody.status === 'duplicate' && repeatedBody.id === firstBody.id, JSON.stringify(repeatedBody));
   const secondBody = await (await sendIn(mail('mail-2026-10-15', 'Mail of 15 October'))).json();
+  // The front page settles jobs a restart killed. While this one is being planned, opening it must not count it as one.
+  await waitFor(async () => (await itemOf(firstBody.id)).jobStatus === 'planning', 10_000);
+  for (let i = 0; i < 3; i++) await fetch(`${base}/`, { headers: { cookie } });
   check('it is planned like an upload, and waits for approval in a brain that files on review', await waitFor(async () => (await itemOf(firstBody.id)).jobStatus === 'awaiting_approval'), JSON.stringify(await itemOf(firstBody.id).catch(() => null)));
+  check('opening the front page while it is planned does not plan it a second time', (await itemOf(firstBody.id)).attempts === 1, JSON.stringify(await itemOf(firstBody.id)));
   const standing = await (await fetch(`${base}/api/ingest?brain=operations`)).json();
   check('the next waits behind it, not beside it', standing.filing === 1 && standing.queued === 1 && (await itemOf(secondBody.id)).state === 'queued', JSON.stringify(standing));
   const firstJob = (await itemOf(firstBody.id)).jobId;
