@@ -40,7 +40,8 @@ export type AuditEvent =
   | 'conversation-wrote'
   | 'conversation-web'
   | 'conversation-undone'
-  | 'conversation-deleted';
+  | 'conversation-deleted'
+  | 'memory-changed';
 
 export interface AuditEntry {
   at: string;

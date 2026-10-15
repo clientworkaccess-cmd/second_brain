@@ -103,7 +103,7 @@ export function FilingHistory({ cluster, filings }: { cluster: string; filings: 
                 className="mt-1 inline-flex items-center gap-1 px-1.5 text-small text-muted hover:text-ink disabled:opacity-50"
                 disabled={busy !== null}
                 onClick={() => void undo(filing.id)}
-                title="Take this filing back out of the wiki"
+                title="Take this filing back out of the brain"
               >
                 <RotateCcw size={12} />
                 {busy === filing.id ? 'Undoing…' : 'Undo'}

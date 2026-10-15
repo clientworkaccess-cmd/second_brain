@@ -80,7 +80,7 @@ const STEPS: Record<LayoutChoice, Step[]> = {
 
 const LAYOUTS: { id: LayoutChoice; title: string; body: string }[] = [
   { id: 'cluster', title: 'One area of a business', body: 'Pages for the people, things and ideas in it. Simple, and enough for most teams.' },
-  { id: 'brain', title: 'A group of businesses', body: 'Every page says which business it concerns and what kind of work it is about, so the same wiki can be read by business or by department.' },
+  { id: 'brain', title: 'A group of businesses', body: 'Every page says which business it concerns and what kind of work it is about, so the same brain can be read by business or by department.' },
 ];
 
 export default function NewCluster() {

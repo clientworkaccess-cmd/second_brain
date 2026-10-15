@@ -8,7 +8,7 @@ import {
   JOBS_DIR,
   ORIGINALS_DIR,
   PLANS_DIR,
-  SETTINGS_DIR, CONVERSATIONS_DIR,
+  SETTINGS_DIR, CONVERSATIONS_DIR, MEMORY_DIR,
   STAGING_DIR,
   TRANSCRIPTS_DIR,
   WIKI_ROOT,
@@ -34,7 +34,7 @@ export interface Cluster {
 
 /** Create the dashboard-owned directories. Safe to call on every boot. */
 export async function ensureDashboardDirs(): Promise<void> {
-  for (const dir of [WIKI_ROOT, DASHBOARD_DIR, JOBS_DIR, STAGING_DIR, PLANS_DIR, ORIGINALS_DIR, TRANSCRIPTS_DIR, SETTINGS_DIR, CONVERSATIONS_DIR]) {
+  for (const dir of [WIKI_ROOT, DASHBOARD_DIR, JOBS_DIR, STAGING_DIR, PLANS_DIR, ORIGINALS_DIR, TRANSCRIPTS_DIR, SETTINGS_DIR, CONVERSATIONS_DIR, MEMORY_DIR]) {
     await fs.mkdir(dir, { recursive: true });
   }
 }
@@ -181,8 +181,8 @@ export async function createBrain(input: { name: string; scope: string; business
   const name = assertClusterName(input.name);
   const dir = clusterPath(name);
 
-  if (await exists(dir)) throw new HttpError(409, `A wiki named "${name}" already exists`);
-  if (!input.scope.trim()) throw new HttpError(400, 'Say what this wiki covers');
+  if (await exists(dir)) throw new HttpError(409, `A brain named "${name}" already exists`);
+  if (!input.scope.trim()) throw new HttpError(400, 'Say what this brain covers');
   const businesses = parseBusinesses(input.businesses);
   if (businesses.length === 0) throw new HttpError(400, 'Name at least one business, one per line');
 

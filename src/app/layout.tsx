@@ -5,7 +5,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'Second Brain',
-  description: 'The team wiki, kept by an agent. Documents go in, linked pages come out, and questions are answered from what is there.',
+  description: 'The team brain, kept by an agent. Documents go in, linked pages come out, and questions are answered from what is there.',
 };
 
 export const viewport: Viewport = {

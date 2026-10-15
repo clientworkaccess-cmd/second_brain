@@ -25,7 +25,8 @@ import { commitCluster, ensureRepo } from '@/lib/git';
 import { acquireBusy, releaseBusy } from '@/lib/jobs';
 import { layoutOf, type Layout } from '@/lib/layout';
 import { beforeIngest, lintAfterIngest, sourceFingerprints } from '@/lib/lint';
-import { modelChoice } from '@/lib/models';
+import { learnFrom, turnContext } from '@/lib/learn';
+import { asksForThinking, modelChoice } from '@/lib/models';
 import { sseResponse } from '@/lib/sse';
 import { forgetWiki, snapshot, type Snapshot } from '@/lib/wiki';
 
@@ -125,6 +126,8 @@ export async function POST(req: NextRequest) {
     else await fs.rm(file, { force: true });
     source = null;
   };
+  /** Who the reader is, how to think and write, and the owner's memory as it is now (lib/learn.ts). */
+  let context = '';
   const start = (sessionId: string, resume: boolean, recap: string): AgentRun =>
     runClaude({
       mode: mode === 'work' ? 'work' : 'chat',
@@ -132,8 +135,10 @@ export async function POST(req: NextRequest) {
       cwd: clusterPath(cluster),
       layout,
       conversation: { id: sessionId, resume },
-      model,
+      // Left to the default, a message that asks for thinking is asked of Opus. The record keeps the reader's choice.
+      model: model ?? (asksForThinking(question) ? 'opus' : null),
       web,
+      context,
       timeoutMs: mode === 'work' ? INGEST_TIMEOUT_MS : CHAT_TIMEOUT_MS,
     });
 
@@ -161,6 +166,7 @@ export async function POST(req: NextRequest) {
       let baseline: Awaited<ReturnType<typeof beforeIngest>> | null = null;
       try {
         send('conversation', { id: record.id, title: record.title });
+        context = await turnContext();
 
         if (mode === 'work') {
           // The restore point first, for a wiki that came here without history.
@@ -299,6 +305,9 @@ export async function POST(req: NextRequest) {
             turn: record.turns.length - 1,
           });
         close();
+        // What the reader taught in this message, if anything, kept for the next ones. In the background: the
+        // reply has already been sent, and a learning run that fails changes nothing.
+        if (!turn.error && turn.answer.trim()) void learnFrom({ question, answer: turn.answer, layout });
       }
     })();
 

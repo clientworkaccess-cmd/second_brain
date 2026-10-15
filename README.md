@@ -427,6 +427,41 @@ Work, which can write, and never in a filing, which reads documents nobody
 has vetted: `agentArgs` throws if asked. The turn is marked "Web" and the trail
 records it.
 
+**Who it is talking to, and how it answers.** Every conversation turn gets
+`prompts/conversation.md` after the wiki's rules in its system prompt: who the
+reader is (from `.dashboard/profile.md` on the server, a few sentences; not in
+the repo because it names a real person; a general line without it), how to
+tell a lookup from a request for thinking and what to do with each (the pages
+are evidence; weigh by money, recency and risk; a problem comes with why and a
+fix; general knowledge labelled as such), and how to write (simple, clear,
+natural, not like AI; "the brain", never "the wiki"). A message left to the
+default model that asks for analysis or advice is asked of Opus
+(`asksForThinking` in `lib/models.ts`).
+
+**Memory.** The brain learns how its owner wants to be answered, with nothing
+shown in the app. After a turn has been answered, `lib/learn.ts` starts a
+run of its own in the background (`--model sonnet`, no tools at all, the
+rules in `prompts/learn.md`). It is shown the reader's message, the reply and
+the memory, numbered, and answers with operations (add, update, delete, a
+topic), which `lib/memory.ts` applies. It keeps only what the reader said and
+will still matter: preferences, corrections, feedback on answers; never facts
+about the business (those belong in the pages), and never anything from a
+page, a document or the web, so nothing the agent reads can plant a memory.
+Filing never touches it. On disk, under `.dashboard/memory/`:
+
+- `core.md`: one dated line per entry, given to every turn, with a line per topic;
+- `topics/<name>.md`: entries about one subject, which a turn may read (never
+  write) when a message touches it;
+- `history/`: every earlier version of each file, the last 200, for rolling
+  back by hand.
+
+A duplicate is not added twice, a newer wish replaces the one it contradicts,
+and past 60 core entries (or 80 in a topic) a second pass consolidates:
+merges, drops what was replaced, moves subject-specific entries into topics.
+Runs are one at a time; one that fails changes nothing. Every change is in the
+audit log. `MEMORY=off` stops learning; `MEMORY_MODEL` picks another model.
+Memory starts empty.
+
 **Voice.** Where the browser has speech (Chrome, Edge and Safari; not
 Firefox), the question box has a microphone and a Talk button, and each
 answer a "Read aloud". The microphone dictates into the box. Talk is a

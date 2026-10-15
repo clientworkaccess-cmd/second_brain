@@ -139,7 +139,7 @@ export function pageProblems(
   if (page.type === null) {
     out.push('has no type in its block');
   } else if (!layout.types.some((t) => t.type === page.type) && page.type !== folder?.type) {
-    out.push(`has the type "${page.type}", which this wiki does not have`);
+    out.push(`has the type "${page.type}", which this brain does not have`);
   } else if (folder && page.type !== folder.type) {
     out.push(`has the type "${page.type}" but is in the folder for ${folder.label.toLowerCase()}`);
   }

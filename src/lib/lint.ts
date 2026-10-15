@@ -140,7 +140,7 @@ export async function lintAfterIngest(cluster: string, before: Before, kind: 'in
     findings.push({
       code: 'no-pages-written',
       severity: 'warning',
-      detail: 'The agent finished without creating or changing any page. Check the source has content this wiki covers.',
+      detail: 'The agent finished without creating or changing any page. Check the source has content this brain covers.',
     });
   }
 
@@ -231,7 +231,7 @@ export async function lintAfterIngest(cluster: string, before: Before, kind: 'in
     findings.push({
       code: 'agent-config-file',
       severity: 'error',
-      detail: `"${file}" is in the wiki. Files of that name can carry instructions into later runs. Remove it and check what wrote it.`,
+      detail: `"${file}" is in the brain. Files of that name can carry instructions into later runs. Remove it and check what wrote it.`,
     });
   }
   //    Where a person keeps such files in the folder on purpose, they are
@@ -378,7 +378,7 @@ export async function checkWiki(cluster: string): Promise<WikiReport> {
 
   // Files that would steer a later run.
   for (const file of await agentConfigFiles(cluster, layout)) {
-    remarks.push({ code: 'agent-config-file', severity: 'error', slug: null, detail: `"${file}" is in the wiki. Files of that name can carry instructions into later runs. Remove it and check what wrote it.` });
+    remarks.push({ code: 'agent-config-file', severity: 'error', slug: null, detail: `"${file}" is in the brain. Files of that name can carry instructions into later runs. Remove it and check what wrote it.` });
   }
 
   return { checkedAt: new Date().toISOString(), pages: all.length, remarks };
