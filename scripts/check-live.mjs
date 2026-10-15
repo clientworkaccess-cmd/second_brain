@@ -255,6 +255,9 @@ try {
   check('behind the proxy, the redirect goes to the public address', proxied.location === 'https://brain.example.com/login?from=%2Fc%2Fops', `${proxied.status} ${proxied.location}`);
   const posted = await fetch(`${base}/api/clusters`, json({ name: 'intruder', scope: 'x' }));
   check('nothing can be created without a session', posted.status === 401 && !(await fs.readdir(app.wiki)).includes('intruder'), String(posted.status));
+  const health = await fetch(`${base}/api/health`);
+  const healthBody = await health.json().catch(() => null);
+  check('the health check answers without a session, and says only that it is up', health.status === 200 && healthBody?.ok === true && typeof healthBody?.version === 'string' && Object.keys(healthBody).length === 2, JSON.stringify(healthBody));
   const forged = await get('/api/clusters', { cookie: 'brain_session=authenticated' });
   check('a made-up cookie is refused', forged.status === 401, String(forged.status));
   const unsigned = await get('/api/clusters', { cookie: `brain_session=abc.${Math.floor(Date.now() / 1000) + 3600}.abc` });

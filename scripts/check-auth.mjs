@@ -72,6 +72,7 @@ check('a forgotten password can be reset without a session, and changed only wit
 check('the epoch and the revoked ids are reachable, for the middleware', gate('/api/auth/state', false) === 'allow' && gate('/api/auth/state/', false) !== 'allow' && gate('/api/auth/states', false) !== 'allow');
 check('build output is reachable', isPublicPath('/_next/static/chunks/main.js') && isPublicPath('/favicon.ico'));
 check('the app’s mark is reachable, so the login page can show it', isPublicPath('/icon.png'));
+check('the health check is reachable, and nothing else under it', isPublicPath('/api/health') && !isPublicPath('/api/health/x') && !isPublicPath('/api/healthz'));
 check('a signed-in visitor is sent away from the login page', gate('/login', true) === 'to-home');
 check('a signed-in visitor gets everything else', PROTECTED.every((p) => gate(p, true) === 'allow'));
 
