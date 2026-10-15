@@ -25,6 +25,9 @@ What changed in Second Brain, newest first. Each entry names the pull request it
 - `GET /api/health`: public, says the server is up and its version, nothing else (#26).
 - This changelog.
 
+### Fixed
+- Opening the front page no longer marks a job that is still running as interrupted; the ingest queue had planned one transcript twice because of it (#29).
+
 ### Changed
 - The reader sees "brain" everywhere in the app, never "wiki".
 
