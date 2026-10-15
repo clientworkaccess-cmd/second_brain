@@ -73,6 +73,22 @@ check('the epoch and the revoked ids are reachable, for the middleware', gate('/
 check('build output is reachable', isPublicPath('/_next/static/chunks/main.js') && isPublicPath('/favicon.ico'));
 check('the app’s mark is reachable, so the login page can show it', isPublicPath('/icon.png'));
 check('the health check is reachable, and nothing else under it', isPublicPath('/api/health') && !isPublicPath('/api/health/x') && !isPublicPath('/api/healthz'));
+{
+  const { ingestRefusal, parseIngest, filenameFor } = await import(lib('ingest'));
+  const h = (o) => ({ get: (n) => o[n] ?? null });
+  check('the ingest path skips the login, and decides for itself', isPublicPath('/api/ingest'));
+  check('a document sent from the server itself is let in', ingestRefusal(h({}), '') === null);
+  check('anything nginx passed on is refused, whatever else it says', ingestRefusal(h({ 'x-real-ip': '127.0.0.1' }), '') !== null && ingestRefusal(h({ forwarded: 'for=127.0.0.1' }), '') !== null && ingestRefusal(h({ 'x-forwarded-for': '203.0.113.9' }), '') !== null && ingestRefusal(h({ 'x-forwarded-for': '203.0.113.9, 127.0.0.1' }), '') !== null);
+  check('what Next itself adds for a direct caller is let in', ingestRefusal(h({ 'x-forwarded-for': '::ffff:127.0.0.1', 'x-forwarded-host': 'localhost:3003', 'x-forwarded-proto': 'http' }), '') === null && ingestRefusal(h({ 'x-forwarded-for': '::1' }), '') === null);
+  check('with INGEST_TOKEN set, the token is needed and must match', ingestRefusal(h({}), 's3cret-token') !== null && ingestRefusal(h({ authorization: 'Bearer wrong-token!' }), 's3cret-token') !== null && ingestRefusal(h({ authorization: 'Bearer s3cret-token' }), 's3cret-token') === null);
+  let bad = 0;
+  for (const body of [null, {}, { brain: '../x', title: 't', text: 'x', sourceId: 'a' }, { brain: 'ops', title: '', text: 'x', sourceId: 'a' }, { brain: 'ops', title: 't', text: 'x', sourceId: 'two\nlines' }]) {
+    try { parseIngest(body); } catch (err) { if (err.status === 400) bad++; }
+  }
+  check('a body that does not hold together is a 400', bad === 5, `${bad}/5`);
+  const ok = parseIngest({ cluster: 'ops', title: '  Mail  of 14 Oct ', text: 'a\r\nb', sourceId: 'gmail:18c2', kind: 'nonsense', date: '2026-10-14' });
+  check('a good one is read, with an unknown kind as a document', ok.title === 'Mail of 14 Oct' && ok.text === 'a\nb' && ok.kind === 'document' && ok.date === '2026-10-14' && filenameFor(ok) === '2026-10-14 Mail of 14 Oct.md');
+}
 check('a signed-in visitor is sent away from the login page', gate('/login', true) === 'to-home');
 check('a signed-in visitor gets everything else', PROTECTED.every((p) => gate(p, true) === 'allow'));
 
