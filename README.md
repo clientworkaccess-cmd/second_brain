@@ -305,6 +305,40 @@ npm run gen-brain -- .wiki-dev/northwind --pages 350 --links 10
 
 Everything in it is made up.
 
+## Documents sent in (email, transcripts)
+
+n8n, on the same server, sends documents to the app and the app files them
+exactly as an upload is filed: a plan, the brain's rules, the check, a commit,
+undo. n8n does the fetching (Gmail, Drive) with its own credentials; the agent
+never gets mail or Drive access, so a planted line in an email cannot make it
+send anything anywhere.
+
+```
+POST http://127.0.0.1:3003/api/ingest
+{ "brain": "gamma", "title": "Email, 14 October 2026", "text": "…",
+  "sourceId": "gmail-digest:2026-10-14", "kind": "email", "date": "2026-10-14" }
+
+202 { "status": "queued", "id": "…", "position": 1 }
+200 { "status": "duplicate", "id": "…" }     sent before: not filed again
+GET  http://127.0.0.1:3003/api/ingest?brain=gamma   → { queued, filing, filed, failed }
+GET  /api/health                                    → { ok, version }, public
+```
+
+- **Who may send.** Only a caller on the server itself. The route skips the
+  login and refuses anything that came through nginx (it carries `X-Real-IP`,
+  or an outside address in `X-Forwarded-For`); nginx also answers 403 for the
+  path. `INGEST_TOKEN`, when set, is required as a bearer token as well. n8n in
+  Docker needs `network_mode: host` to reach 127.0.0.1.
+- **Once only.** `sourceId` is the sender's id for the document. A second one
+  with the same id for the same brain is acknowledged and dropped.
+- **In turn.** Documents are filed one at a time per brain, oldest first: the
+  next is planned only when the one before is filed, or decided on by a person
+  where the brain waits for approval (a plan made beside another would be stale
+  by the time it ran). A filing interrupted by a restart is tried once more.
+- **On disk:** `.dashboard/ingest/items/<id>.json` and `.md` (state: queued,
+  filing, filed, failed), `.dashboard/ingest/seen/` (the register).
+- Every document received is in the audit log (`ingest-received`).
+
 ## How it fits together
 
 ```

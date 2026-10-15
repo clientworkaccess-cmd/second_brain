@@ -60,6 +60,7 @@ const SAID: Record<string, string> = {
   'conversation-web': 'Conversation looked on the web',
   'conversation-undone': 'Conversation change undone',
   'conversation-deleted': 'Conversation deleted',
+  'ingest-received': 'Document sent in for filing',
 };
 
 const WARY = new Set(['conversation-undone', 'conversation-deleted', 'sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);

@@ -255,6 +255,9 @@ try {
   check('behind the proxy, the redirect goes to the public address', proxied.location === 'https://brain.example.com/login?from=%2Fc%2Fops', `${proxied.status} ${proxied.location}`);
   const posted = await fetch(`${base}/api/clusters`, json({ name: 'intruder', scope: 'x' }));
   check('nothing can be created without a session', posted.status === 401 && !(await fs.readdir(app.wiki)).includes('intruder'), String(posted.status));
+  const health = await fetch(`${base}/api/health`);
+  const healthBody = await health.json().catch(() => null);
+  check('the health check answers without a session, and says only that it is up', health.status === 200 && healthBody?.ok === true && typeof healthBody?.version === 'string' && Object.keys(healthBody).length === 2, JSON.stringify(healthBody));
   const forged = await get('/api/clusters', { cookie: 'brain_session=authenticated' });
   check('a made-up cookie is refused', forged.status === 401, String(forged.status));
   const unsigned = await get('/api/clusters', { cookie: `brain_session=abc.${Math.floor(Date.now() / 1000) + 3600}.abc` });
@@ -546,6 +549,40 @@ try {
   check('a turn in Work never gets the web, even when asked', workWeb.list.at(-1)?.name === 'end' && workWeb.list.at(-1)?.data.web === false && !tokensOf(workWeb).includes('Looked on the web'), JSON.stringify(workWeb.list.at(-1)?.data));
   check('the record says which turns could use the web', (await recordOf(convOf(onWeb))).turns[0].web === true && (await recordOf(convOf(offWeb))).turns[0].web === false);
 
+  // Documents sent in from the server itself (n8n): queued, deduplicated, filed in turn like an upload.
+  const sendIn = (body, headers = {}) => fetch(`${base}/api/ingest`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
+  const mail = (sourceId, title) => ({ brain: 'operations', title, text: `What was said by email about ${title}. Returns now go through Acme Freight.`, sourceId, kind: 'email', date: '2026-10-14' });
+  const itemOf = async (id) => JSON.parse(await fs.readFile(path.join(app.wiki, '.dashboard', 'ingest', 'items', `${id}.json`), 'utf8'));
+  const waitFor = async (test, ms = 60_000) => {
+    for (const until = Date.now() + ms; Date.now() < until; await new Promise((r) => setTimeout(r, 200))) if (await test().catch(() => false)) return true;
+    return false;
+  };
+  const sentThroughProxy = await sendIn(mail('mail-2026-10-14', 'Mail of 14 October'), { 'x-forwarded-for': '203.0.113.9', 'x-real-ip': '203.0.113.9' });
+  check('a document that came through the proxy is refused', sentThroughProxy.status === 403, String(sentThroughProxy.status));
+  const withoutText = await sendIn({ brain: 'operations', title: 'Empty', text: ' ', sourceId: 'x-1' });
+  check('one without text is refused, and says why', withoutText.status === 400 && /no text/i.test((await withoutText.json()).error ?? ''), String(withoutText.status));
+  const toNowhere = await sendIn({ ...mail('x-2', 'Elsewhere'), brain: 'nowhere' });
+  check('one for a brain that is not there is refused', toNowhere.status === 404, String(toNowhere.status));
+  const firstIn = await sendIn(mail('mail-2026-10-14', 'Mail of 14 October'));
+  const firstBody = await firstIn.json();
+  check('a document is queued at once', firstIn.status === 202 && firstBody.status === 'queued' && typeof firstBody.id === 'string', JSON.stringify(firstBody));
+  const repeated = await sendIn(mail('mail-2026-10-14', 'Mail of 14 October'));
+  const repeatedBody = await repeated.json();
+  check('the same sourceId again is a duplicate, and is not filed twice', repeated.status === 200 && repeatedBody.status === 'duplicate' && repeatedBody.id === firstBody.id, JSON.stringify(repeatedBody));
+  const secondBody = await (await sendIn(mail('mail-2026-10-15', 'Mail of 15 October'))).json();
+  check('it is planned like an upload, and waits for approval in a brain that files on review', await waitFor(async () => (await itemOf(firstBody.id)).jobStatus === 'awaiting_approval'), JSON.stringify(await itemOf(firstBody.id).catch(() => null)));
+  const standing = await (await fetch(`${base}/api/ingest?brain=operations`)).json();
+  check('the next waits behind it, not beside it', standing.filing === 1 && standing.queued === 1 && (await itemOf(secondBody.id)).state === 'queued', JSON.stringify(standing));
+  const firstJob = (await itemOf(firstBody.id)).jobId;
+  check('a person approves it as any other filing', (await fetch(`${base}/api/pipeline/execute`, withCookie(json({ jobId: firstJob }), cookie))).status === 202);
+  check('once it is filed, the next is planned', await waitFor(async () => (await itemOf(firstBody.id)).state === 'filed' && (await itemOf(secondBody.id)).state === 'filing'), JSON.stringify([await itemOf(firstBody.id), await itemOf(secondBody.id)].map((i) => `${i.state}/${i.jobStatus}`)));
+  const rawNow = await fs.readdir(path.join(app.wiki, 'operations', 'raw')).catch(() => []);
+  const rawTexts = await Promise.all(rawNow.filter((f) => f.endsWith('.md')).map((f) => fs.readFile(path.join(app.wiki, 'operations', 'raw', f), 'utf8')));
+  check('the filed source says where it came from', rawTexts.some((t) => t.includes('source_url: ingest://email/mail-2026-10-14') && t.includes('# Mail of 14 October')), rawNow.join(', '));
+  await waitFor(async () => (await itemOf(secondBody.id)).jobStatus === 'awaiting_approval');
+  await fetch(`${base}/api/pipeline/reject`, withCookie(json({ jobId: (await itemOf(secondBody.id)).jobId }), cookie));
+  check('a filing a person discards marks the document failed, not filed', await waitFor(async () => (await itemOf(secondBody.id)).state === 'failed'), JSON.stringify(await itemOf(secondBody.id)));
+
   // Names, and deleting.
   const renameRes = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: workId, title: 'Refund notes' }), method: 'PATCH' }, cookie));
   check('a conversation can be renamed', renameRes.status === 200 && (await recordOf(workId)).title === 'Refund notes', String(renameRes.status));
@@ -598,7 +635,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web', 'ingest-received'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 
