@@ -105,13 +105,15 @@ export const TRANSCRIPTS_DIR = path.join(DASHBOARD_DIR, 'transcripts');
 export const SETTINGS_DIR = path.join(DASHBOARD_DIR, 'settings');
 /** Conversations with each wiki, every question and answer. See lib/conversations.ts. */
 export const CONVERSATIONS_DIR = path.join(DASHBOARD_DIR, 'conversations');
-/** What Pat has taught the brain about how he wants things, across every conversation. See lib/memory.ts. */
+/** What the owner has taught the brain about how they want things, across every conversation. See lib/memory.ts. */
 export const MEMORY_DIR = path.join(DASHBOARD_DIR, 'memory');
 /**
  * Who the brain is talking to, in a few sentences, for every conversation turn (prompts/conversation.md).
  * Server data rather than part of the repo: it names a real person. Without it a general line is used.
  */
 export const PROFILE_FILE = path.join(DASHBOARD_DIR, 'profile.md');
+/** Documents sent in by n8n (email, transcripts), waiting their turn to be filed, and every one ever received. See lib/ingest.ts. */
+export const INGEST_DIR = path.join(DASHBOARD_DIR, 'ingest');
 
 /** Hard ceiling on a single ingest before we give up and mark the job failed. */
 export const INGEST_TIMEOUT_MS = Number(process.env.INGEST_TIMEOUT_MS ?? 15 * 60 * 1000);

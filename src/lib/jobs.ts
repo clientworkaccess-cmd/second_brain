@@ -105,6 +105,8 @@ export interface Job {
   revision: number;
   /** True when the plan was carried out as soon as it was made, because the wiki is set to file at once. */
   automatic: boolean;
+  /** Filed as soon as it is planned whatever the wiki is set to: a document sent in by n8n (lib/ingest.ts), which nobody waits to approve. */
+  fileAtOnce: boolean;
   /** Short sha of the commit that undid this filing, when it was undone. */
   undoCommit: string | null;
   error: string | null;
@@ -134,17 +136,32 @@ interface JobRuntime {
   /** Live subscribers, for SSE. Disk is the durable copy; this is the fast path. */
   listeners: Map<string, Set<(job: Job) => void>>;
   cache: Map<string, Job>;
+  /** Jobs with a run going in this process right now: never "interrupted", whatever the disk says. */
+  live: Map<string, number>;
 }
 
 const globalForJobs = globalThis as typeof globalThis & { __wikiJobs?: JobRuntime };
 
 const runtime: JobRuntime = (globalForJobs.__wikiJobs ??= {
   busy: new Map(),
+  live: new Map(),
   listeners: new Map(),
   cache: new Map(),
 });
 
-const { busy, listeners, cache } = runtime;
+// A runtime kept from before `live` existed (a dev server's hot reload) gets one.
+runtime.live ??= new Map();
+const { busy, listeners, cache, live } = runtime;
+
+/** Run a job's planning or writing, marked live while it runs. Counted, since planning can start the writing before it returns. */
+function running(id: string, run: () => Promise<void>): void {
+  live.set(id, (live.get(id) ?? 0) + 1);
+  void run().finally(() => {
+    const left = (live.get(id) ?? 1) - 1;
+    if (left > 0) live.set(id, left);
+    else live.delete(id);
+  });
+}
 
 export function isBusy(cluster: string): string | null {
   return busy.get(cluster) ?? null;
@@ -170,7 +187,9 @@ export function releaseBusy(cluster: string, owner: string): void {
 
 /**
  * A restart kills any spawned agent with it, so a job still marked planning or
- * executing on boot is dead. Mark those so the UI can say "interrupted" instead
+ * executing on boot is dead. It runs on every render of the front page, so it
+ * leaves alone any job this process is running (`live`): marking one of those
+ * interrupted made the ingest queue file the same document a second time. Mark those so the UI can say "interrupted" instead
  * of streaming a progress bar that will never move.
  *
  * awaiting_approval is deliberately absent from that list. Nothing was running,
@@ -187,7 +206,8 @@ export async function reconcileOnBoot(): Promise<void> {
   }
   for (const file of files.filter((f) => f.endsWith('.json'))) {
     const job = await readJobFile(path.join(JOBS_DIR, file));
-    if (job && isActive(job.status)) {
+    // Called on every render of the front page, not once: a job this process is running is alive, not interrupted.
+    if (job && isActive(job.status) && !live.has(job.id)) {
       const was = job.status;
       job.status = 'interrupted';
       job.endedAt = new Date().toISOString();
@@ -251,6 +271,8 @@ export async function startPlanning(opts: {
   filename: string;
   stagedPath: string;
   originalPath: string | null;
+  /** File as soon as it is planned, whatever the wiki is set to. */
+  fileAtOnce?: boolean;
 }): Promise<Job> {
   const job: Job = {
     id: randomUUID(),
@@ -267,6 +289,7 @@ export async function startPlanning(opts: {
     originalPath: opts.originalPath,
     revision: 1,
     automatic: false,
+    fileAtOnce: opts.fileAtOnce === true,
     undoCommit: null,
     error: null,
   };
@@ -275,7 +298,7 @@ export async function startPlanning(opts: {
   await persist(job);
 
   // Deliberately not awaited. The HTTP response goes out now.
-  void plan(job, null);
+  running(job.id, () => plan(job, null));
 
   return job;
 }
@@ -302,7 +325,7 @@ export async function revisePlan(jobId: string, feedback: string): Promise<Job> 
   await persist(job);
   emit(job);
 
-  void plan(job, { feedback, previous });
+  running(job.id, () => plan(job, { feedback, previous }));
 
   return job;
 }
@@ -388,7 +411,7 @@ async function startExecution(job: Job, approved: Plan): Promise<void> {
   await persist(job);
   emit(job);
 
-  void execute(job, approved);
+  running(job.id, () => execute(job, approved));
 }
 
 /**
@@ -486,7 +509,7 @@ async function plan(
     // carried out now. The job never rests: the panel that follows it sees
     // planning turn into executing. Anything that stops it, such as another
     // filing holding the wiki, leaves the plan waiting for a person instead.
-    if ((await readSettings(job.cluster)).filing === 'automatic') {
+    if (job.fileAtOnce || (await readSettings(job.cluster)).filing === 'automatic') {
       await sandbox.dispose();
       sandbox = null;
       try {
@@ -804,6 +827,7 @@ async function readJobFile(file: string): Promise<Job | null> {
       originalPath: raw.originalPath ?? null,
       revision: Number(raw.revision ?? 1) || 1,
       automatic: raw.automatic === true,
+      fileAtOnce: raw.fileAtOnce === true,
       undoCommit: raw.undoCommit ?? null,
       error: raw.error ?? null,
     };
