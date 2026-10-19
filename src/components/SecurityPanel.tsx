@@ -44,7 +44,7 @@ const SAID: Record<string, string> = {
   'sign-out': 'Signed out',
   'session-revoked': 'Session ended',
   'signed-out-everywhere': 'Signed out everywhere',
-  'cluster-created': 'Wiki created',
+  'cluster-created': 'Brain created',
   'settings-changed': 'Settings changed',
   'filing-planned': 'Document read',
   'filing-approved': 'Filing approved',
@@ -60,6 +60,7 @@ const SAID: Record<string, string> = {
   'conversation-web': 'Conversation looked on the web',
   'conversation-undone': 'Conversation change undone',
   'conversation-deleted': 'Conversation deleted',
+  'memory-changed': 'Memory updated from a conversation',
   'ingest-received': 'Document sent in for filing',
 };
 

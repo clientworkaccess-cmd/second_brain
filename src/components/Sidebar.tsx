@@ -124,7 +124,7 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
         <button type="button" className={`panel-tab${panel === 'search' ? ' active' : ''}`} onClick={() => setPanel('search')}>
           Search
         </button>
-        <button type="button" className={`panel-tab${panel === 'chats' ? ' active' : ''}`} onClick={() => setPanel('chats')} title="Your conversations with this wiki">
+        <button type="button" className={`panel-tab${panel === 'chats' ? ' active' : ''}`} onClick={() => setPanel('chats')} title="Your conversations with this brain">
           Chats
         </button>
         <span className="statusbar-spacer" />
@@ -134,7 +134,7 @@ export function PageSidebar({ cluster, listing }: { cluster: string; listing: Li
         <Link className={`icon-button${pathname.startsWith(`${home}/ask`) ? ' active' : ''}`} href={`${home}/ask`} title="Ask a question">
           <MessageSquare size={16} />
         </Link>
-        <Link className={`icon-button${pathname === `${home}/check` ? ' active' : ''}`} href={`${home}/check`} title="Check the wiki against its rules">
+        <Link className={`icon-button${pathname === `${home}/check` ? ' active' : ''}`} href={`${home}/check`} title="Check the brain against its rules">
           <ListChecks size={16} />
         </Link>
         <Link className="icon-button" href="/" title="All clusters">

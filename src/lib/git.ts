@@ -106,7 +106,7 @@ export async function commitCluster(cluster: string, message: string, layout: La
 export async function revertCommit(cluster: string, sha: string, message: string, layout: Layout): Promise<string> {
   const cwd = clusterPath(cluster);
   if (!/^[0-9a-f]{7,40}$/i.test(sha)) throw new HttpError(400, 'That is not a commit');
-  if (!(await ensureRepo(cluster, layout))) throw new HttpError(409, 'This wiki has no repository, so there is nothing to revert');
+  if (!(await ensureRepo(cluster, layout))) throw new HttpError(409, 'This brain has no repository, so there is nothing to revert');
 
   // Anything a person left uncommitted in the folder would be swept up by
   // the revert's commit. Stage what the layout says is the wiki first, as a

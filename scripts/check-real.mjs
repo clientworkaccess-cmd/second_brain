@@ -169,6 +169,18 @@ for (const [layout, mode] of [CLUSTER, BRAIN].flatMap((l) => ['plan', 'execute',
   check('chat, a chosen model: the alias is accepted', !!r.init && !/unknown option|invalid (option|value)|error: /i.test(r.err), r.err.slice(0, 200) || (r.init ? '' : 'no session was started'));
   check('chat, a chosen model: the run reports it', /haiku/i.test(r.result?.model ?? r.init?.model ?? ''), r.result?.model ?? r.init?.model ?? 'no model reported');
 }
+// The memory's learning run: no tools, its own rules, and an answer the app can read.
+{
+  const { learnPrompt } = await import(lib('learn'));
+  const { parseOps, emptyMemory } = await import(lib('memory'));
+  const { runClaudeToString } = await import(lib('claude'));
+  const ask = (question) =>
+    runClaudeToString({ mode: 'learn', prompt: learnPrompt(emptyMemory(), { question, answer: 'Understood.' }), cwd: cluster, layout: CLUSTER, model: 'sonnet', timeoutMs: 180_000 }).catch((err) => `ERROR ${err.message}`);
+  const taught = await ask('From now on, always lead with the cash position before anything else.');
+  check('learn: a lasting preference comes back as an add', parseOps(taught).some((o) => o.op === 'add'), taught.slice(0, 200));
+  const idle = await ask('Thanks, that is all for now.');
+  check('learn: small talk changes nothing', parseOps(idle).length === 0 && /"ops"/.test(idle), idle.slice(0, 200));
+}
 console.log(`\nClaude Code ${version ?? 'of unknown version'}`);
 
 /** The init line as the binary printed it; the parser keeps only part of it. */

@@ -41,6 +41,7 @@ export type AuditEvent =
   | 'conversation-web'
   | 'conversation-undone'
   | 'conversation-deleted'
+  | 'memory-changed'
   | 'ingest-received';
 
 export interface AuditEntry {

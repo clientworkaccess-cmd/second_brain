@@ -397,7 +397,7 @@ async function startExecution(job: Job, approved: Plan): Promise<void> {
     if (basisIsStale(approved.basis, now)) {
       throw new HttpError(
         409,
-        'The wiki changed since this plan was made. Create a new plan so it reflects what is there now.',
+        'The brain changed since this plan was made. Create a new plan so it reflects what is there now.',
       );
     }
   } catch (err) {

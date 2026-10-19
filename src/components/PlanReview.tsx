@@ -90,7 +90,7 @@ export function PlanReview({
       </h3>
 
       <p className="mt-1 max-w-prose text-body text-muted">
-        Nothing has been added to the wiki. Check that this matches the document, then decide.
+        Nothing has been added to the brain. Check that this matches the document, then decide.
       </p>
 
       {plan.feedback && (
@@ -103,7 +103,7 @@ export function PlanReview({
       )}
 
       {created.length > 0 && (
-        <Section title="New to the wiki">
+        <Section title="New to the brain">
           {created.map((p, i) => (
             <Item key={i} title={p.name} note={noteOf(p)} body={p.summary} quote={p.quote} />
           ))}

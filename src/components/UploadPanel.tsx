@@ -275,7 +275,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
         <Badge tone="neutral">Undone</Badge>
         <h3 className="mt-2.5 text-title font-semibold text-ink">{job.filename} was taken back out</h3>
         <p className="mt-1 max-w-prose text-body text-muted">
-          The pages it wrote and the source it filed were reverted in a commit of their own. The wiki is as it was before.
+          The pages it wrote and the source it filed were reverted in a commit of their own. The brain is as it was before.
         </p>
         <Button variant="ghost" className="mt-4" onClick={() => setJob(null)}>
           Add another
@@ -290,7 +290,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
         <Badge tone="neutral">Discarded</Badge>
         <h3 className="mt-2.5 text-title font-semibold text-ink">{job.filename} was not filed</h3>
         <p className="mt-1 max-w-prose text-body text-muted">
-          The document and the plan have been deleted. The wiki was never touched.
+          The document and the plan have been deleted. The brain was never touched.
         </p>
         <Button variant="ghost" className="mt-4" onClick={() => setJob(null)}>
           Add another
@@ -312,7 +312,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
               {job.error ?? 'The agent stopped before finishing.'}
             </p>
             <p className="mt-1 text-ui text-muted">
-              The wiki is under version control, so a half-written filing can be undone.
+              The brain is under version control, so a half-written filing can be undone.
             </p>
             <Button
               variant="ghost"
@@ -354,7 +354,7 @@ export function UploadPanel({ cluster }: { cluster: string }) {
         <p className="mt-1 max-w-prose text-ui text-muted">
           {job?.status === 'executing'
             ? 'Writing the pages you approved, then linking them and updating the index. You can leave this page. It keeps running.'
-            : 'The agent is reading the whole document to work out what it contains. Nothing is written to the wiki yet. You see the plan first. You can leave this page. It keeps running.'}
+            : 'The agent is reading the whole document to work out what it contains. Nothing is written to the brain yet. You see the plan first. You can leave this page. It keeps running.'}
         </p>
 
         <div className="mt-3 space-y-2">
@@ -534,7 +534,7 @@ function IngestDiff({
       <h3 className="mt-2.5 text-title font-semibold text-ink">
         {attention
           ? `${job.filename} was read, but the record is not in order`
-          : `${job.filename} is now part of the wiki`}
+          : `${job.filename} is now part of the brain`}
       </h3>
       {job.automatic && (
         <p className="mt-1 max-w-prose text-ui text-muted">
@@ -581,7 +581,7 @@ function IngestDiff({
           {attention ? 'Add another anyway' : 'Add another'}
         </Button>
         {job.commit && (
-          <Button variant="quiet" onClick={onUndo} disabled={busy} title="Take this filing back out of the wiki">
+          <Button variant="quiet" onClick={onUndo} disabled={busy} title="Take this filing back out of the brain">
             <RotateCcw size={14} />
             {busy ? 'Undoing…' : 'Undo this filing'}
           </Button>
