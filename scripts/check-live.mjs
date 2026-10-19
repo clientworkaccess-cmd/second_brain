@@ -570,18 +570,24 @@ try {
   const repeatedBody = await repeated.json();
   check('the same sourceId again is a duplicate, and is not filed twice', repeated.status === 200 && repeatedBody.status === 'duplicate' && repeatedBody.id === firstBody.id, JSON.stringify(repeatedBody));
   const secondBody = await (await sendIn(mail('mail-2026-10-15', 'Mail of 15 October'))).json();
-  check('it is planned like an upload, and waits for approval in a brain that files on review', await waitFor(async () => (await itemOf(firstBody.id)).jobStatus === 'awaiting_approval'), JSON.stringify(await itemOf(firstBody.id).catch(() => null)));
   const standing = await (await fetch(`${base}/api/ingest?brain=operations`)).json();
   check('the next waits behind it, not beside it', standing.filing === 1 && standing.queued === 1 && (await itemOf(secondBody.id)).state === 'queued', JSON.stringify(standing));
-  const firstJob = (await itemOf(firstBody.id)).jobId;
-  check('a person approves it as any other filing', (await fetch(`${base}/api/pipeline/execute`, withCookie(json({ jobId: firstJob }), cookie))).status === 202);
-  check('once it is filed, the next is planned', await waitFor(async () => (await itemOf(firstBody.id)).state === 'filed' && (await itemOf(secondBody.id)).state === 'filing'), JSON.stringify([await itemOf(firstBody.id), await itemOf(secondBody.id)].map((i) => `${i.state}/${i.jobStatus}`)));
+  // The front page settles jobs a restart killed. While this one is being planned, opening it must not count it as one.
+  await waitFor(async () => (await itemOf(firstBody.id)).jobStatus === 'planning', 10_000);
+  for (let i = 0; i < 3; i++) await fetch(`${base}/`, { headers: { cookie } });
+  check('it is filed without waiting for anyone, though this brain has uploads approved', await waitFor(async () => (await itemOf(firstBody.id)).state === 'filed'), JSON.stringify(await itemOf(firstBody.id).catch(() => null)));
+  check('opening the front page while it is planned does not plan it a second time', (await itemOf(firstBody.id)).attempts === 1, JSON.stringify(await itemOf(firstBody.id)));
+  const firstJobFile = JSON.parse(await fs.readFile(path.join(app.wiki, '.dashboard', 'jobs', `${(await itemOf(firstBody.id)).jobId}.json`), 'utf8'));
+  check('it is an ordinary filing, carried out at once and committed', firstJobFile.status === 'done' && firstJobFile.automatic === true && firstJobFile.fileAtOnce === true && typeof firstJobFile.commit === 'string', `${firstJobFile.status}, automatic ${firstJobFile.automatic}, commit ${firstJobFile.commit}`);
+  check('then the next is filed after it', await waitFor(async () => (await itemOf(secondBody.id)).state === 'filed'), JSON.stringify(await itemOf(secondBody.id).catch(() => null)));
   const rawNow = await fs.readdir(path.join(app.wiki, 'operations', 'raw')).catch(() => []);
   const rawTexts = await Promise.all(rawNow.filter((f) => f.endsWith('.md')).map((f) => fs.readFile(path.join(app.wiki, 'operations', 'raw', f), 'utf8')));
   check('the filed source says where it came from', rawTexts.some((t) => t.includes('source_url: ingest://email/mail-2026-10-14') && t.includes('# Mail of 14 October')), rawNow.join(', '));
-  await waitFor(async () => (await itemOf(secondBody.id)).jobStatus === 'awaiting_approval');
-  await fetch(`${base}/api/pipeline/reject`, withCookie(json({ jobId: (await itemOf(secondBody.id)).jobId }), cookie));
-  check('a filing a person discards marks the document failed, not filed', await waitFor(async () => (await itemOf(secondBody.id)).state === 'failed'), JSON.stringify(await itemOf(secondBody.id)));
+  const uploadAfter = await upload(base, cookie, 'operations', 'after.md', NOTE);
+  const uploadJob = (await uploadAfter.json()).jobId;
+  const uploadPlanned = lastJob(await events(`${base}/api/jobs/${uploadJob}`, { headers: { cookie } }));
+  check('an upload still waits for approval in a brain set to review', uploadPlanned?.status === 'awaiting_approval', uploadPlanned?.status ?? 'no job');
+  await fetch(`${base}/api/pipeline/reject`, withCookie(json({ jobId: uploadJob }), cookie));
 
   // Names, and deleting.
   const renameRes = await fetch(`${base}/api/conversations`, withCookie({ ...json({ cluster: 'operations', id: workId, title: 'Refund notes' }), method: 'PATCH' }, cookie));
