@@ -395,7 +395,7 @@ export function ChatPanel({
                       <>
                         {text && (
                           <div className="preview compact">
-                            <MarkdownView source={text} cluster={cluster} titles={known} />
+                            <MarkdownView source={text} cluster={cluster} titles={known} diagrams={busy && i === turns.length - 1 ? 'pending' : 'draw'} />
                           </div>
                         )}
                         {questions && <QuestionCard questions={questions} open={!busy && i === turns.length - 1} onSend={(message) => void ask(message)} />}

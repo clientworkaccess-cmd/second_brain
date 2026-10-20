@@ -1348,6 +1348,64 @@
     justify-content: flex-end;
     gap: 8px;
   }
+  /* A diagram in an answer (MermaidDiagram.tsx): the picture, two small tools, and a whole-screen view. */
+  .diagram {
+    margin: 0 0 1em;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-primary);
+  }
+  .diagram[data-diagram='pending'] {
+    min-height: 64px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .diagram-failed pre {
+    margin: 8px 0 0;
+  }
+  .diagram-tools {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+  .diagram-picture {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+    font-family: var(--font-ui);
+    font-size: 14px;
+  }
+  .diagram-picture svg {
+    max-width: 100%;
+    height: auto;
+  }
+  .diagram-full {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 24px 24px;
+    background: color-mix(in srgb, var(--bg-primary) 94%, transparent);
+  }
+  .diagram-full .diagram-picture {
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    overflow: auto;
+  }
+  .diagram-full .diagram-picture svg {
+    max-height: 100%;
+  }
+  .diagram-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+  }
   /* Back down to the latest message, shown when the reader has scrolled up. */
   .chat-to-bottom {
     position: absolute;

@@ -6,6 +6,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
 ## Unreleased
 
 ### Added
+- **Diagrams in the chat.** When a picture explains it better (a process, who owns what, a timeline, money moving between parties) or the reader asks to see one, a reply can carry a Mermaid diagram, drawn as a picture once the reply has arrived, with Copy code and Enlarge. Drawn in Mermaid's strict mode; click lines and setting directives are taken out first. A diagram that does not parse is shown as code. Filing and Work may add one to a page only under strict rules (a process, structure or timeline page, at least four facts it states, never on person, source, index or log pages); the reading view keeps it as code for now.
 - **Questions before an answer.** When a message is unclear, or the answer turns on a choice only the owner can make, the reply asks one to three questions instead of guessing, as a card: suggested answers to pick (one, or several where it allows) and a line for an answer of one's own. Send answers puts them in the conversation as the next message; Skip, just answer lets it go on its own assumptions. The card closes once answered. It never asks for a lookup, or twice about the same thing.
 - **Memory.** The brain learns how its owner wants to be answered: preferences, corrections and feedback on
   answers. A background run (Sonnet, no tools) reads each finished conversation turn and changes the memory;
