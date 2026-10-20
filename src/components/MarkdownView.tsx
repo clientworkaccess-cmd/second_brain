@@ -5,6 +5,8 @@ import type { ComponentProps, ReactNode } from 'react';
 import { assetHref, resolveImagePath } from '@/lib/assetPaths';
 import { remarkCallouts } from '@/lib/callouts';
 import { linkifyWikilinks } from '@/lib/wikilinks';
+import { isDiagram } from '@/lib/diagrams';
+import { MermaidDiagram } from '@/components/MermaidDiagram';
 import type { Heading } from '@/lib/outline';
 
 /**
@@ -18,6 +20,10 @@ import type { Heading } from '@/lib/outline';
  *
  * `outline` gives the headings their ids, in the order they appear, so that the
  * outline panel and the page agree on where each heading is.
+ *
+ * `diagrams` draws ```mermaid blocks as pictures (the chat); 'pending' while
+ * the answer is still arriving, so a diagram is drawn once it is whole.
+ * Without it they stay code, as in the reading view.
  */
 export function MarkdownView({
   source,
@@ -26,6 +32,7 @@ export function MarkdownView({
   outline,
   images,
   fromDir,
+  diagrams,
 }: {
   source: string;
   cluster: string;
@@ -35,6 +42,7 @@ export function MarkdownView({
   images?: string[];
   /** The page's own folder, from the wiki's root, for images named by a relative path. */
   fromDir?: string;
+  diagrams?: 'draw' | 'pending';
 }) {
   const imageFor = images
     ? (target: string): string | null => {
@@ -55,6 +63,14 @@ export function MarkdownView({
     <Markdown
       remarkPlugins={[remarkGfm, remarkCallouts]}
       components={{
+        pre({ node, children }) {
+          const code = node?.children[0];
+          if (diagrams && code?.type === 'element' && code.tagName === 'code' && isDiagram((code.properties.className as string[] | undefined)?.join(' '))) {
+            const text = code.children.map((c) => (c.type === 'text' ? c.value : '')).join('');
+            return <MermaidDiagram code={text} pending={diagrams === 'pending'} />;
+          }
+          return <pre>{children}</pre>;
+        },
         h1: heading('h1'),
         h2: heading('h2'),
         h3: heading('h3'),

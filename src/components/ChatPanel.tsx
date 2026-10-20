@@ -388,7 +388,7 @@ export function ChatPanel({
                   </p>
                 ) : turn.answer ? (
                   <div className="preview compact">
-                    <MarkdownView source={stripTrailers(turn.answer)} cluster={cluster} titles={known} />
+                    <MarkdownView source={stripTrailers(turn.answer)} cluster={cluster} titles={known} diagrams={busy && i === turns.length - 1 ? 'pending' : 'draw'} />
                   </div>
                 ) : (
                   <div className="space-y-2" aria-label="Waiting for the answer">

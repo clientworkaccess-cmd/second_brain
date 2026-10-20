@@ -26,10 +26,11 @@
     "check:graph": "node scripts/check-graph.mjs",
     "check:conversations": "node scripts/check-conversations.mjs",
     "check:speech": "node scripts/check-speech.mjs",
+    "check:diagrams": "node scripts/check-diagrams.mjs",
     "check:memory": "node scripts/check-memory.mjs",
     "check:live": "node scripts/check-live.mjs",
     "check:real": "node scripts/check-real.mjs",
-    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets && npm run check:rename && npm run check:graph && npm run check:conversations && npm run check:speech && npm run check:memory"
+    "check": "npm run check:stream && npm run check:auth && npm run check:pipeline && npm run check:lint && npm run check:pages && npm run check:layout && npm run check:facets && npm run check:design && npm run check:assets && npm run check:rename && npm run check:graph && npm run check:conversations && npm run check:speech && npm run check:memory && npm run check:diagrams"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",
@@ -56,6 +57,7 @@
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.469.0",
     "mammoth": "^1.12.1",
+    "mermaid": "11.17.2",
     "next": "^15.5.26",
     "nodemailer": "^10.0.16",
     "pdfjs-dist": "^6.2.108",
