@@ -80,6 +80,22 @@ confidence: medium
 - Dates are absolute: 2026-09-22, never "last week".
 - Do not store passwords, keys, account numbers or bank details, even when a source contains them. Say that the source holds them and leave them out.
 
+## Diagrams in pages
+
+By default, a page has no diagram. Add one only when ALL of these are true:
+
+1. The page is one of these kinds: a process or workflow, an ownership or entity structure, or a project or deal timeline.
+2. The page itself states the facts the diagram would show: at least 4 steps, parties or dated events, and how they connect.
+3. The text alone is hard to follow without it.
+
+Never add a diagram to a person page, a source page, the index, the log, a meeting or email note, a definition or concept page, or any page with thin or uncertain facts. Never add one because it looks good, because a page is long, or because a source had one. If you are unsure, do not add it.
+
+- One diagram at most, as a mermaid code block under `## Diagram`, after the text it illustrates.
+- A flowchart or a timeline only, at most 12 boxes, short plain labels.
+- Only facts already written on the page. Invent nothing.
+- No links, addresses or click actions in a diagram.
+- When you change a page that has a diagram, make it match the new text, or remove it if the page no longer meets the rules above.
+
 ## When sources disagree
 
 Keep both statements, each with its source. Mark them with a block that starts `> [!conflict]` and say which is newer. Never replace one with the other silently. Mention the conflict in your report.

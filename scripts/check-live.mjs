@@ -549,6 +549,24 @@ try {
   check('a turn in Work never gets the web, even when asked', workWeb.list.at(-1)?.name === 'end' && workWeb.list.at(-1)?.data.web === false && !tokensOf(workWeb).includes('Looked on the web'), JSON.stringify(workWeb.list.at(-1)?.data));
   check('the record says which turns could use the web', (await recordOf(convOf(onWeb))).turns[0].web === true && (await recordOf(convOf(offWeb))).turns[0].web === false);
 
+  // Diagrams: drawn in the chat, kept as code in the reading view.
+  const drawn = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Draw the returns process as a diagram.' }), cookie));
+  check('the agent is told how to draw, and answers with a diagram', tokensOf(drawn).includes('```mermaid') && tokensOf(drawn).includes('flowchart LR'), tokensOf(drawn).slice(0, 120));
+  const drawnPage = await (await fetch(`${base}/c/operations/ask/${convOf(drawn)}`, { headers: { cookie } })).text();
+  check('in the chat a diagram is a picture, not code', drawnPage.includes('data-diagram=') && !drawnPage.includes('language-mermaid'), drawnPage.includes('language-mermaid') ? 'shown as code' : 'no diagram');
+  const diagramPage = await put({ cluster: 'operations', slug: 'concepts/returns-flow', text: '---\ntitle: Returns Flow\ntype: concept\n---\n\n# Returns Flow\n\n## Diagram\n\n```mermaid\nflowchart LR\n  A --> B\n```\n' });
+  const readingView = diagramPage.ok ? await (await fetch(`${base}/c/operations/concepts/returns-flow`, { headers: { cookie } })).text() : '';
+  check('in the reading view it stays code until that is switched on', readingView.includes('language-mermaid') && !readingView.includes('data-diagram='), String(diagramPage.status));
+
+  // Questions before an answer: asked as a card, answered as the next message.
+  const askedFirst = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Help me decide where to open next.' }), cookie));
+  check('the agent is told how to ask, and asks instead of answering', tokensOf(askedFirst).includes('```questions') && tokensOf(askedFirst).includes('Which business is this for?'), tokensOf(askedFirst).slice(0, 120));
+  const askedPage = await (await fetch(`${base}/c/operations/ask/${convOf(askedFirst)}`, { headers: { cookie } })).text();
+  check('the questions are a card to answer, not code', askedPage.includes('data-questions="open"') && askedPage.includes('What matters most?') && !askedPage.includes('language-questions'), askedPage.includes('language-questions') ? 'shown as code' : 'no card');
+  const answered = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Which business is this for? Harbour Bakery.\nWhat matters most? Cost, Risk.', conversation: convOf(askedFirst) }), cookie));
+  const answeredPage = await (await fetch(`${base}/c/operations/ask/${convOf(askedFirst)}`, { headers: { cookie } })).text();
+  check('the answers go on as the next message, and the card closes', answered.list.at(-1)?.name === 'end' && answeredPage.includes('data-questions="answered"') && !answeredPage.includes('data-questions="open"'), answered.list.at(-1)?.name);
+
   // The owner's memory: learned in the background after a turn, given to every turn after it.
   const memoryFile = path.join(app.wiki, '.dashboard', 'memory', 'core.md');
   const taught = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'From now on always lead with the cash position.' }), cookie));

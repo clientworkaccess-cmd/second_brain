@@ -35,7 +35,11 @@
  * says with "always", "never", "from now on" or "I prefer" as a preference, and
  * "forget that" deletes the first entry. A conversation turn asked "what do you
  * remember" answers with the memory it was given in its system prompt, and "who
- * am I" with the profile, so the checks can see both reach the agent.
+ * am I" with the profile, so the checks can see both reach the agent. Asked to
+ * "help me decide", with the asking rules in its system prompt, it replies with
+ * only a questions block. Asked to
+ * "draw" or for a "diagram", with the diagram rules in its system prompt, it
+ * answers with a mermaid block (and a click line, which is never drawn).
  *
  * A conversation is kept the way the real binary keeps one: `--session-id X`
  * starts it and `--resume X` continues it, from a file under Claude's folder
@@ -721,6 +725,19 @@ async function answer() {
     const system = await systemPrompt();
     const kept = /who am i/i.test(question) ? section(system, 'Who you are talking to') : section(system, 'What the owner has told you before');
     const text = await stream([`${kept || 'Nothing yet.'}\n`]);
+    finish(text.trim());
+    return;
+  }
+  // Asked to draw, and told how in its system prompt: one mermaid block, as the prompt asks.
+  if (/\b(draw|diagram)\b/i.test(question) && section(await systemPrompt(), 'Diagrams')) {
+    const text = await stream(['This is how a return moves through the warehouse.\n\n', '```mermaid\nflowchart LR\n  A[Return arrives] --> B{Damaged?}\n  B -->|Yes| C[Write off]\n  B -->|No| D[Restock]\n  click A "https://example.com"\n```\n']);
+    finish(text.trim());
+    return;
+  }
+  // Asked to help decide, and told how to ask in its system prompt: questions first, no answer yet.
+  if (/help me decide/i.test(question) && section(await systemPrompt(), 'Asking before you answer')) {
+    const block = JSON.stringify({ questions: [{ question: 'Which business is this for?', options: ['Harbour Bakery', 'Northside Cafe'], multi: false }, { question: 'What matters most?', options: ['Cost', 'Speed', 'Risk'], multi: true }] });
+    const text = await stream(['Two things change the answer, so I will ask first.\n\n', `\`\`\`questions\n${block}\n\`\`\`\n`]);
     finish(text.trim());
     return;
   }
