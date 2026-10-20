@@ -1277,6 +1277,77 @@
     font-family: var(--font-mono, ui-monospace, monospace);
     font-size: 13.5px;
   }
+  /* Questions a reply asks before it answers (QuestionCard.tsx). */
+  .question-card {
+    margin-top: 12px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-secondary);
+    font-family: var(--font-ui);
+    font-size: 14px;
+  }
+  .question-card[data-questions='answered'] {
+    opacity: 0.7;
+  }
+  .question-card-head {
+    margin-bottom: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  .question {
+    margin: 0 0 14px;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+  }
+  .question-text {
+    margin-bottom: 8px;
+    padding: 0;
+    font-weight: 600;
+    color: var(--text-normal);
+  }
+  .question-options {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+  .question-option {
+    padding: 5px 11px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-primary);
+    color: var(--text-normal);
+    cursor: pointer;
+  }
+  .question-option:hover:not(:disabled) {
+    background: var(--bg-hover);
+  }
+  .question-option.is-on {
+    border-color: rgb(var(--c-accent));
+    background: rgb(var(--c-accent) / 0.12);
+    color: var(--text-normal);
+  }
+  .question-option:disabled {
+    cursor: default;
+  }
+  .question-other {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-primary);
+    color: var(--text-normal);
+  }
+  .question-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
   /* Back down to the latest message, shown when the reader has scrolled up. */
   .chat-to-bottom {
     position: absolute;

@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowDown, AudioLines, BookOpen, Globe, Mic, SendHorizonal, MessageSquare, MessageSquarePlus, PenLine, Square, Undo2, Volume2, X } from 'lucide-react';
 import { MarkdownView } from '@/components/MarkdownView';
+import { QuestionCard } from '@/components/QuestionCard';
+import { splitQuestions } from '@/lib/questions';
 import { Button, EmptyState, Skeleton } from '@/components/ui';
 import { DEFAULT_MODEL, MODELS, familyOf, modelChoice, type ModelChoice } from '@/lib/models';
 import { pageHref, resolveLink } from '@/lib/wikilinks';
@@ -387,9 +389,19 @@ export function ChatPanel({
                     {turn.error}
                   </p>
                 ) : turn.answer ? (
-                  <div className="preview compact">
-                    <MarkdownView source={stripTrailers(turn.answer)} cluster={cluster} titles={known} />
-                  </div>
+                  (() => {
+                    const { text, questions } = splitQuestions(stripTrailers(turn.answer));
+                    return (
+                      <>
+                        {text && (
+                          <div className="preview compact">
+                            <MarkdownView source={text} cluster={cluster} titles={known} />
+                          </div>
+                        )}
+                        {questions && <QuestionCard questions={questions} open={!busy && i === turns.length - 1} onSend={(message) => void ask(message)} />}
+                      </>
+                    );
+                  })()
                 ) : (
                   <div className="space-y-2" aria-label="Waiting for the answer">
                     <Skeleton className="h-3 w-5/6" />

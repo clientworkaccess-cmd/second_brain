@@ -6,6 +6,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
 ## Unreleased
 
 ### Added
+- **Questions before an answer.** When a message is unclear, or the answer turns on a choice only the owner can make, the reply asks one to three questions instead of guessing, as a card: suggested answers to pick (one, or several where it allows) and a line for an answer of one's own. Send answers puts them in the conversation as the next message; Skip, just answer lets it go on its own assumptions. The card closes once answered. It never asks for a lookup, or twice about the same thing.
 - **Memory.** The brain learns how its owner wants to be answered: preferences, corrections and feedback on
   answers. A background run (Sonnet, no tools) reads each finished conversation turn and changes the memory;
   the app writes it under `.dashboard/memory/` (`core.md`, always given to a turn; `topics/<name>.md`, read by
