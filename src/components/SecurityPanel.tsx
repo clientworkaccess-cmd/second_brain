@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { KeyRound, LogOut, Monitor, ShieldCheck, ShieldOff, X } from 'lucide-react';
+import { KeyRound, LogOut, Monitor, Plug, ShieldCheck, ShieldOff, X } from 'lucide-react';
 import { Badge, Button, Field, Input } from '@/components/ui';
 
 /**
@@ -22,6 +22,14 @@ export interface OpenSession {
   client: string;
   agent: string;
   current: boolean;
+}
+
+/** An app connected to the brain over MCP (lib/oauth.ts): Claude. */
+export interface ConnectedApp {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string;
 }
 
 export interface TrailEntry {
@@ -62,9 +70,16 @@ const SAID: Record<string, string> = {
   'conversation-deleted': 'Conversation deleted',
   'memory-changed': 'Memory updated from a conversation',
   'ingest-received': 'Document sent in for filing',
+  'mcp-registered': 'An app introduced itself to connect',
+  'mcp-authorized': 'App allowed to read the brain',
+  'mcp-refused': 'App not allowed',
+  'mcp-connected': 'App connected',
+  'mcp-disconnected': 'App disconnected',
+  'mcp-read': 'Read by a connected app',
+  'mcp-filed': 'Document sent in by a connected app',
 };
 
-const WARY = new Set(['conversation-undone', 'conversation-deleted', 'sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted']);
+const WARY = new Set(['conversation-undone', 'conversation-deleted', 'sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted', 'mcp-authorized', 'mcp-disconnected']);
 
 function when(iso: string): string {
   const d = new Date(iso);
@@ -163,7 +178,64 @@ function browserOf(agent: string): string {
   return os ? `${browser} on ${os}` : browser;
 }
 
-export function SecurityPanel({ sessions, trail, secondFactor }: { sessions: OpenSession[]; trail: TrailEntry[]; secondFactor: boolean }) {
+/** Apps connected over MCP, each of which can be ended here. */
+function ConnectedApps({ apps }: { apps: ConnectedApp[] }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function end(id: string) {
+    setBusy(id);
+    setError(null);
+    try {
+      const res = await fetch('/api/oauth/connections', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? 'That did not work');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'That did not work');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section aria-labelledby="security-apps">
+      <h2 id="security-apps" className="text-body font-semibold text-ink">
+        Connected apps
+        <span className="ml-2 text-small font-normal tabular-nums text-muted">{apps.length}</span>
+      </h2>
+      {error && (
+        <p role="alert" className="mt-2 rounded border border-danger/40 bg-danger/10 px-2.5 py-1.5 text-ui text-danger">
+          {error}
+        </p>
+      )}
+      <ul className="mt-2 divide-y divide-line rounded border border-line bg-panel">
+        {apps.length === 0 && (
+          <li className="px-3.5 py-3 text-ui text-muted">
+            None. To use the brain from Claude, add a custom connector there with the address <code>/mcp</code> on this site; it can read, and send documents in to be filed.
+          </li>
+        )}
+        {apps.map((a) => (
+          <li key={a.id} className="flex items-center gap-3 px-3.5 py-2.5">
+            <Plug className="flex-none text-muted" size={16} />
+            <span className="min-w-0 flex-1">
+              <span className="block text-ui text-ink">{a.name}</span>
+              <span className="block text-small text-muted">
+                reads, sends documents to file · connected {when(a.createdAt)} · last used {when(a.lastUsedAt)}
+              </span>
+            </span>
+            <button type="button" className="icon-button" title="Disconnect: it stops working at once" disabled={busy !== null} onClick={() => end(a.id)}>
+              <X size={15} />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function SecurityPanel({ sessions, apps, trail, secondFactor }: { sessions: OpenSession[]; apps: ConnectedApp[]; trail: TrailEntry[]; secondFactor: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -260,6 +332,8 @@ export function SecurityPanel({ sessions, trail, secondFactor }: { sessions: Ope
           ))}
         </ul>
       </section>
+
+      <ConnectedApps apps={apps} />
 
       <section aria-labelledby="security-trail">
         <h2 id="security-trail" className="text-body font-semibold text-ink">

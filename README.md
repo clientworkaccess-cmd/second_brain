@@ -343,6 +343,40 @@ GET  /api/health                                    → { ok, version }, public
   filing, filed, failed), `.dashboard/ingest/seen/` (the register).
 - Every document received is in the audit log (`ingest-received`).
 
+## Using the brain from Claude (MCP)
+
+The brain is also an MCP server, so Claude (claude.ai, the desktop and mobile apps, Claude Code) can read it with
+everything Claude itself can do around it.
+
+**Connect.** In Claude: Settings → Connectors → Add custom connector, address `https://<your site>/mcp`. Claude
+opens the brain's own sign-in (password and code), then asks "Claude wants to use your brain"; Allow, and it is
+connected. Claude Code: `claude mcp add --transport http brain https://<your site>/mcp`, then `/mcp` to sign in.
+
+**What it can do.** Read: `list_brains`, `search_brain`, `read_page` (by title or path, with what it links to and
+what links to it), `list_pages`, `recent_changes`. File: `file_document` sends the full text of a document the user
+pasted or attached into the same queue n8n uses (see "Documents sent in"); the brain's own filing agent plans and
+files it at once, with its rules, and every filing can be undone in the app. The same text sent twice is filed once.
+`filing_status` says what happened to it and which pages it created or updated. Claude never edits or deletes a page
+itself, and sees what the app shows, never `raw/`, `.dashboard` or anything outside a brain.
+
+**Built on** the official TypeScript SDK (`@modelcontextprotocol/sdk`, Streamable HTTP transport, stateless, JSON
+answers), inside the app: same process, same port, the same nginx `location /`. No second service.
+
+**How it is kept safe** (`src/lib/oauth.ts`, `src/app/mcp/route.ts`):
+
+- OAuth 2.1 with PKCE (S256) and dynamic client registration, as the MCP authorization spec asks. Without a token,
+  `/mcp` answers 401 with where to sign in (`/.well-known/oauth-protected-resource`).
+- Codes are sent only to Claude's own addresses (`https://claude.ai`, `https://claude.com`) or to the owner's own
+  machine (`http://localhost`, for Claude Code and the desktop app). `MCP_REDIRECT_HOSTS` adds a host.
+- Granting needs the login; the consent page answers only to a form on the brain itself.
+- Tokens are random and kept only as hashes (`.dashboard/oauth.json`). An access token lasts an hour; the refresh
+  token changes every time it is used, and an old one shown again ends the connection (it was copied).
+- "Sign out everywhere" and a password change end every connection. Each connection is listed on the Security page
+  under Connected apps and can be ended there. Every read is in the trail ("Read by a connected app").
+- A web page cannot call `/mcp` (Origin is checked), even with a token.
+
+Nothing to set up on the server: the public site already passes `/mcp`, `/.well-known/…` and `/api/oauth/…` on.
+
 ## How it fits together
 
 ```

@@ -6,6 +6,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
 ## Unreleased
 
 ### Added
+- **The brain in Claude (MCP).** `/mcp` is an MCP server Claude can be connected to as a custom connector, built on the official TypeScript SDK inside the app: list the brains, search them, read pages, list pages, see recent changes, and file a document (`file_document`, planned and filed at once by the brain's own agent, undoable; `filing_status` reports what changed). Claude never edits pages itself. Connecting goes through the brain's own sign-in and a consent page (OAuth 2.1 with PKCE and dynamic registration); codes go only to Claude; tokens are hashed, refresh tokens rotate and a reused one ends the connection; signing out everywhere ends every connection. Connections are listed on the Security page and can be ended there; every read is in the trail.
 - **Diagrams in the chat.** When a picture explains it better (a process, who owns what, a timeline, money moving between parties) or the reader asks to see one, a reply can carry a Mermaid diagram, drawn as a picture once the reply has arrived, with Copy code and Enlarge. Drawn in Mermaid's strict mode; click lines and setting directives are taken out first. A diagram that does not parse is shown as code. Filing and Work may add one to a page only under strict rules (a process, structure or timeline page, at least four facts it states, never on person, source, index or log pages); the reading view keeps it as code for now.
 - **Questions before an answer.** When a message is unclear, or the answer turns on a choice only the owner can make, the reply asks one to three questions instead of guessing, as a card: suggested answers to pick (one, or several where it allows) and a line for an answer of one's own. Send answers puts them in the conversation as the next message; Skip, just answer lets it go on its own assumptions. The card closes once answered. It never asks for a lookup, or twice about the same thing.
 - **Memory.** The brain learns how its owner wants to be answered: preferences, corrections and feedback on
@@ -29,6 +30,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
 - This changelog.
 
 ### Fixed
+- "Session ID … is already in use": a conversation whose first reply was cut off (a phone that went to sleep, a failure halfway) could not go on. The app now carries the session on. And a reply is no longer stopped when the reader goes away: it finishes and is kept, so reopening the conversation shows it. Stop still stops a reply in Discuss.
 - Opening the front page no longer marks a job that is still running as interrupted; the ingest queue had planned one transcript twice because of it (#29).
 
 ### Changed

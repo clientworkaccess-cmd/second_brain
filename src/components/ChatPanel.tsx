@@ -281,7 +281,9 @@ export function ChatPanel({
       if ((err as Error).name === 'AbortError') {
         setTurns((t) => patchLast(t, (turn) => ({ ...turn, done: true })));
       } else {
-        const message = err instanceof Error ? err.message : 'Something went wrong';
+        // The connection dropped (a phone that went to sleep, a network change). The server goes on and keeps the answer.
+        const message =
+          err instanceof TypeError ? 'The connection dropped. The answer is still being written and is kept: reopen this conversation in a moment to see it.' : err instanceof Error ? err.message : 'Something went wrong';
         setTurns((t) => patchLast(t, (turn) => ({ ...turn, error: message, done: true })));
         voice.feed('\nSorry, that did not work.\n');
       }
@@ -341,6 +343,8 @@ export function ChatPanel({
   askRef.current = (said) => void ask(said);
   const talking = voice.phase !== 'off';
   const stop = (): void => {
+    // The server lets a turn finish when the reader goes away; Stop is the one way to end it. A turn in Work always finishes.
+    if (id && busy && mode !== 'work') void fetch('/api/chat', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ conversation: id }) }).catch(() => {});
     abortRef.current?.abort();
     if (talking) voice.interrupt();
   };

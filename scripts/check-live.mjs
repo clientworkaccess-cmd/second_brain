@@ -18,7 +18,7 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { createHmac, randomBytes, scryptSync } from 'node:crypto';
+import { createHash, createHmac, randomBytes, scryptSync } from 'node:crypto';
 import { solveChallenge } from 'altcha-lib';
 import { deriveKey } from 'altcha-lib/algorithms/sha';
 import { fileURLToPath } from 'node:url';
@@ -485,6 +485,50 @@ try {
   const picked = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Still with me?', conversation: conversationId }), cookie));
   const after = await recordOf(conversationId);
   check('a conversation the binary has forgotten is picked back up from the record', picked.list.some((e) => e.name === 'activity' && /back up/.test(e.data.text)) && tokensOf(picked).includes('Earlier you asked: "And who logs it?"') && after.session.id !== kept.session.id && after.turns.length === 3, tokensOf(picked).split('\n')[0]);
+  {
+  // A first turn cut off before it finished (a phone that slept) leaves the binary with a session the record never learned had started.
+  const cutFirst = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Who handles returns?' }), cookie));
+  const cutId = convOf(cutFirst);
+  const cutFile = path.join(app.wiki, '.dashboard', 'conversations', 'operations', `${cutId}.json`);
+  const cutRecord = JSON.parse(await fs.readFile(cutFile, 'utf8'));
+  await fs.writeFile(cutFile, JSON.stringify({ ...cutRecord, session: { ...cutRecord.session, started: false } }));
+  const carried = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And refunds?', conversation: cutId }), cookie));
+  const carriedRecord = await recordOf(cutId);
+  check('a session the binary already has is carried on, not started again', carried.list.at(-1)?.name === 'end' && tokensOf(carried).includes('Earlier you asked: "Who handles returns?"') && carriedRecord.session.started === true && carriedRecord.session.id === cutRecord.session.id, tokensOf(carried).slice(0, 120) || JSON.stringify(carried.list.at(-1)?.data));
+
+  /** Starts a question and gives back once the first words are in, with the stream still open. */
+  const begin = async (question) => {
+    const controller = new AbortController();
+    const res = await fetch(`${base}/api/chat`, withCookie({ ...json({ cluster: 'operations', question }), signal: controller.signal }, cookie));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let seen = '';
+    while (!/event: token/.test(seen)) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += decoder.decode(value, { stream: true });
+    }
+    return { id: seen.match(/"id":"([0-9a-f-]{36})"/)?.[1] ?? '', reader, controller };
+  };
+  const settledTurn = async (id) => {
+    for (let i = 0; i < 100; i++) {
+      const record = await recordOf(id).catch(() => null);
+      if (record?.turns?.length) return record.turns.at(-1);
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return null;
+  };
+  const left = await begin('What is in the returns policy?');
+  left.controller.abort();
+  const leftTurn = await settledTurn(left.id);
+  check('a reader who goes away mid-answer finds the whole answer kept', !!left.id && !!leftTurn && !leftTurn.error && leftTurn.answer.trim().length > 0, JSON.stringify(leftTurn).slice(0, 160));
+  const halted = await begin('Tell me about refunds.');
+  const stopped = await (await fetch(`${base}/api/chat`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation: halted.id }) }, cookie))).json();
+  halted.controller.abort();
+  const haltedTurn = await settledTurn(halted.id);
+  check('Stop still stops a question that only reads', stopped.stopped === true && !!haltedTurn && !!haltedTurn.error, JSON.stringify({ stopped, haltedTurn }).slice(0, 160));
+  check('Stop needs a conversation, and says when there was nothing to stop', (await fetch(`${base}/api/chat`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation: 'x' }) }, cookie))).status === 400 && (await (await fetch(`${base}/api/chat`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation: halted.id }) }, cookie))).json()).stopped === false);
+  }
   const unknown = await fetch(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'x', conversation: '11111111-2222-4333-8444-555555555555' }), cookie));
   check('a conversation that is not there is 404, not a new one in disguise', unknown.status === 404, String(unknown.status));
   const nowhere = await fetch(`${base}/api/chat`, withCookie(json({ cluster: '../operations', question: 'x' }), cookie));
@@ -674,10 +718,140 @@ try {
   check('the old sessions are gone from the list', ((await (await get('/api/auth/sessions', { cookie: afterwards.cookie })).json()).sessions ?? []).length === 1);
   check('the epoch and the revocations survive a restart', JSON.parse(await fs.readFile(path.join(app.wiki, '.dashboard', 'auth.json'), 'utf8')).epoch === 2);
 
+  // ---------------------------------------------------------- Claude over MCP
+  // Discovery, registration, the owner's consent behind the login, tokens with PKCE, the tools, refresh, ending it.
+  {
+    // Everyone was signed out above: a browser signs in again to answer for the owner.
+    const cookie = (await signIn(base, PASSWORD, { 'x-forwarded-for': '198.51.100.3' })).cookie;
+    const plain = (p, init = {}) => fetch(base + p, { redirect: 'manual', ...init });
+    const CALLBACK = 'https://claude.ai/api/mcp/auth_callback';
+    const noToken = await plain('/mcp', json({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18' } }));
+    check('without a token /mcp says where to sign in', noToken.status === 401 && /resource_metadata="http[^"]+\/\.well-known\/oauth-protected-resource"/.test(noToken.headers.get('www-authenticate') ?? ''), `${noToken.status} ${noToken.headers.get('www-authenticate')}`);
+    const prm = await (await plain('/.well-known/oauth-protected-resource')).json();
+    const asm = await (await plain('/.well-known/oauth-authorization-server')).json();
+    check('the metadata names /mcp as the resource and this site as the server', prm.resource === `${base}/mcp` && prm.authorization_servers?.[0] === base && asm.registration_endpoint === `${base}/api/oauth/register` && asm.authorization_endpoint === `${base}/oauth/authorize`, JSON.stringify(prm));
+    const badReg = await plain('/api/oauth/register', json({ client_name: 'Elsewhere', redirect_uris: ['https://evil.example/cb'] }));
+    check('a registration that wants codes sent anywhere but Claude is refused', badReg.status === 400, String(badReg.status));
+    const reg = await (await plain('/api/oauth/register', json({ client_name: 'Claude', redirect_uris: [CALLBACK], token_endpoint_auth_method: 'none' }))).json();
+    check('Claude can register itself', typeof reg.client_id === 'string' && reg.token_endpoint_auth_method === 'none' && !reg.client_secret, JSON.stringify(reg));
+
+    const verifier = randomBytes(32).toString('base64url');
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    const q = new URLSearchParams({ response_type: 'code', client_id: reg.client_id, redirect_uri: CALLBACK, code_challenge: challenge, code_challenge_method: 'S256', state: 'xyz', resource: `${base}/mcp` });
+    const anon = await plain(`/oauth/authorize?${q}`);
+    const loginFrom = new URL(anon.headers.get('location') ?? '/', base).searchParams.get('from');
+    check('asking the owner needs the login, and the login comes back to the same request', [302, 303, 307].includes(anon.status) && loginFrom === `/oauth/authorize?${q}`, `${anon.status} ${loginFrom}`);
+    const consent = await (await plain(`/oauth/authorize?${q}`, { headers: { cookie } })).text();
+    check('signed in, the owner is asked, with the app named and what it can do', consent.includes('Claude') && consent.includes('wants to use your brain') && consent.includes('cannot edit or delete') && consent.includes('name="decision"'));
+    const unknownClient = await (await plain(`/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(q), client_id: 'nobody' })}`, { headers: { cookie } })).text();
+    check('an app that never registered is not asked about', unknownClient.includes('not registered') && !unknownClient.includes('name="decision"'));
+    const answer = (decision, origin = base) =>
+      fetch(`${base}/api/oauth/authorize`, { method: 'POST', redirect: 'manual', headers: { 'content-type': 'application/x-www-form-urlencoded', cookie, origin }, body: new URLSearchParams({ ...Object.fromEntries(q), decision }).toString() });
+    check('a yes from another site is refused', (await answer('allow', 'https://evil.example')).status === 403);
+    const refused = new URL((await answer('deny')).headers.get('location') ?? '', base);
+    check('a no goes back to Claude as access_denied', refused.origin === 'https://claude.ai' && refused.searchParams.get('error') === 'access_denied' && refused.searchParams.get('state') === 'xyz');
+    const codeOf = async () => {
+      const res = await answer('allow');
+      const back = new URL(res.headers.get('location') ?? '', base);
+      return { status: res.status, back, code: back.searchParams.get('code') };
+    };
+    const first = await codeOf();
+    check('a yes goes back to Claude with a code, the state and the issuer', first.status === 303 && first.back.origin === 'https://claude.ai' && first.back.searchParams.get('state') === 'xyz' && first.back.searchParams.get('iss') === base && !!first.code, first.back.toString().slice(0, 80));
+    const token = (form) => fetch(`${base}/api/oauth/token`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString() });
+    const exchangeWith = (code, v = verifier) => token({ grant_type: 'authorization_code', code, client_id: reg.client_id, redirect_uri: CALLBACK, code_verifier: v });
+    const wrongVerifier = await exchangeWith(first.code, randomBytes(32).toString('base64url'));
+    check('a code with the wrong verifier gives nothing', wrongVerifier.status === 400 && (await wrongVerifier.json()).error === 'invalid_grant');
+    check('and is spent', (await exchangeWith(first.code)).status === 400);
+    const second = await codeOf();
+    const tok = await (await exchangeWith(second.code)).json();
+    check('a code and its verifier give tokens', typeof tok.access_token === 'string' && tok.token_type === 'Bearer' && typeof tok.refresh_token === 'string' && tok.expires_in === 3600, JSON.stringify(tok).slice(0, 80));
+    check('a code works once', (await exchangeWith(second.code)).status === 400);
+
+    const rpc = (method, params, access = tok.access_token) =>
+      fetch(`${base}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${access}` }, body: JSON.stringify(params === undefined ? { jsonrpc: '2.0', method } : { jsonrpc: '2.0', id: 1, method, params }) });
+    const init = await (await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'check', version: '1' } })).json();
+    check('with the token, Claude can start', init.result?.protocolVersion === '2025-06-18' && !!init.result?.capabilities?.tools && init.result?.serverInfo?.name === 'second-brain', JSON.stringify(init).slice(0, 120));
+    check('a notification is taken without an answer', (await rpc('notifications/initialized', undefined)).status === 202);
+    const listedTools = (await (await rpc('tools/list', {})).json()).result?.tools ?? [];
+    check('it offers the tools: the ones that read say so, and one files', ['list_brains', 'search_brain', 'read_page', 'list_pages', 'recent_changes', 'filing_status'].every((n) => listedTools.some((t) => t.name === n && t.annotations?.readOnlyHint === true)) && listedTools.some((t) => t.name === 'file_document' && t.annotations?.readOnlyHint === false), listedTools.map((t) => t.name).join(','));
+    const call = async (name, args) => (await (await rpc('tools/call', { name, arguments: args })).json()).result;
+    const brains = await call('list_brains', {});
+    check('it lists the brains', brains?.isError === false && brains.content[0].text.includes('operations'), brains?.content?.[0]?.text.slice(0, 80));
+    const hits = await call('search_brain', { brain: 'operations', query: 'refund' });
+    check('it searches a brain', hits?.isError === false && hits.content[0].text.includes('concepts/refund-policy'), hits?.content?.[0]?.text.slice(0, 120));
+    const byTitle = await call('read_page', { brain: 'operations', page: 'Refund Policy' });
+    check('it reads a page by its title', byTitle?.isError === false && byTitle.content[0].text.startsWith('# Refund Policy') && byTitle.content[0].text.includes('Path: concepts/refund-policy'), byTitle?.content?.[0]?.text.slice(0, 120));
+    const escape = await call('read_page', { brain: 'operations', page: '../../.dashboard/auth' });
+    check('it reads nothing outside the pages', escape?.isError === true && !escape.content[0].text.includes('passwordHash'), escape?.content?.[0]?.text);
+    const notBrain = await call('search_brain', { brain: '../etc', query: 'x' });
+    check('nor anything that is not a brain', notBrain?.isError === true);
+    const logged = await call('recent_changes', { brain: 'operations', limit: 3 });
+    const pagesListed = await call('list_pages', { brain: 'operations' });
+    check('it reads the log and the page list', logged?.isError === false && pagesListed?.isError === false && pagesListed.content[0].text.includes('Refund Policy'));
+    const madeUp = await plain('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${randomBytes(32).toString('base64url')}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+    check('a made-up token is refused', madeUp.status === 401);
+    const fromAPage = await plain('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://evil.example', authorization: `Bearer ${tok.access_token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+    check('a web page cannot use it, even with a token', fromAPage.status === 403);
+
+    // The SDK's own client, over HTTP, the way a production MCP client talks to it.
+    {
+      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const sdkClient = new Client({ name: 'check-sdk', version: '1' });
+      await sdkClient.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { authorization: `Bearer ${tok.access_token}` } } }));
+      const sdkTools = (await sdkClient.listTools()).tools.map((t) => t.name);
+      const sdkHits = await sdkClient.callTool({ name: 'search_brain', arguments: { brain: 'operations', query: 'refund' } });
+      check('the official SDK client connects over HTTP, lists the tools and calls one', sdkTools.includes('file_document') && sdkTools.includes('read_page') && sdkHits.isError === false && JSON.stringify(sdkHits.content).includes('refund-policy'), sdkTools.join(','));
+
+      // Filing a document from Claude: sent in, planned and filed at once by the brain, reported back.
+      const doc = { brain: 'operations', title: 'Courier change notes', text: 'From 1 November returns go through Acme Freight instead of the old courier. The warehouse team books the pickups.', date: '2026-10-20' };
+      const sent = await sdkClient.callTool({ name: 'file_document', arguments: doc });
+      const sentText = sent.content?.[0]?.text ?? '';
+      const sentId = sentText.match(/as ([0-9a-f-]{36})/)?.[1] ?? '';
+      check('file_document sends a document in to be filed', sent.isError === false && !!sentId, sentText);
+      let status = '';
+      for (let i = 0; i < 150 && !/· filed/.test(status); i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        status = (await sdkClient.callTool({ name: 'filing_status', arguments: { id: sentId } })).content?.[0]?.text ?? '';
+      }
+      check('the brain files it at once, and filing_status says what it changed', /· filed/.test(status) && /new pages, \d+ updated/.test(status) && /can be undone/.test(status), status);
+      const again = await sdkClient.callTool({ name: 'file_document', arguments: doc });
+      check('the same document sent again is not filed twice', again.isError === false && /sent before/.test(again.content?.[0]?.text ?? ''), again.content?.[0]?.text);
+      const recentList = (await sdkClient.callTool({ name: 'filing_status', arguments: { brain: 'operations' } })).content?.[0]?.text ?? '';
+      check('filing_status without an id lists the latest sent in', recentList.includes('Courier change notes'), recentList.slice(0, 160));
+      const noText = await sdkClient.callTool({ name: 'file_document', arguments: { brain: 'operations', title: 'Empty', text: '' } });
+      check('a document without text is refused', noText.isError === true);
+      await sdkClient.close();
+    }
+
+    const refreshed = await (await token({ grant_type: 'refresh_token', refresh_token: tok.refresh_token, client_id: reg.client_id })).json();
+    check('the refresh token gives new tokens, and a new refresh token', typeof refreshed.access_token === 'string' && refreshed.refresh_token !== tok.refresh_token && refreshed.access_token !== tok.access_token);
+    check('the old access token stops working', (await rpc('tools/list', {}, tok.access_token)).status === 401);
+    check('the new one works', (await rpc('tools/list', {}, refreshed.access_token)).status === 200);
+    const replay = await token({ grant_type: 'refresh_token', refresh_token: tok.refresh_token, client_id: reg.client_id });
+    check('an old refresh token shown again ends the connection: it was copied', replay.status === 400 && (await rpc('tools/list', {}, refreshed.access_token)).status === 401);
+
+    const tok3 = await (await exchangeWith((await codeOf()).code)).json();
+    const connections = (await (await fetch(`${base}/api/oauth/connections`, { headers: { cookie } })).json()).connections ?? [];
+    const mine = connections.find((c) => c.name === 'Claude');
+    check('the Security page lists the connection', !!mine && (await (await fetch(`${base}/security`, { headers: { cookie } })).text()).includes('Connected apps'), JSON.stringify(connections));
+    check('only a signed-in browser can see them', (await plain('/api/oauth/connections')).status === 401);
+    await fetch(`${base}/api/oauth/connections`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: mine?.id }) }, cookie));
+    check('ended there, its token stops at once', (await rpc('tools/list', {}, tok3.access_token)).status === 401);
+    const tok4 = await (await exchangeWith((await codeOf()).code)).json();
+    await fetch(`${base}/api/oauth/revoke`, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token: tok4.refresh_token }).toString() });
+    check('Claude can end its own connection', (await rpc('tools/list', {}, tok4.access_token)).status === 401);
+    const tok5 = await (await exchangeWith((await codeOf()).code)).json();
+    const live = (await rpc('tools/list', {}, tok5.access_token)).status;
+    await fetch(`${base}/api/auth/sessions`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ all: true }) }, cookie));
+    const refreshAfter = await token({ grant_type: 'refresh_token', refresh_token: tok5.refresh_token, client_id: reg.client_id });
+    check('signing out everywhere disconnects Claude too', live === 200 && (await rpc('tools/list', {}, tok5.access_token)).status === 401 && refreshAfter.status === 400, `${live}`);
+  }
+
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web', 'memory-changed', 'ingest-received'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web', 'memory-changed', 'ingest-received', 'mcp-registered', 'mcp-authorized', 'mcp-refused', 'mcp-connected', 'mcp-read', 'mcp-filed', 'mcp-disconnected'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 
