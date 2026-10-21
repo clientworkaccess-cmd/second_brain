@@ -485,6 +485,50 @@ try {
   const picked = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Still with me?', conversation: conversationId }), cookie));
   const after = await recordOf(conversationId);
   check('a conversation the binary has forgotten is picked back up from the record', picked.list.some((e) => e.name === 'activity' && /back up/.test(e.data.text)) && tokensOf(picked).includes('Earlier you asked: "And who logs it?"') && after.session.id !== kept.session.id && after.turns.length === 3, tokensOf(picked).split('\n')[0]);
+  {
+  // A first turn cut off before it finished (a phone that slept) leaves the binary with a session the record never learned had started.
+  const cutFirst = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'Who handles returns?' }), cookie));
+  const cutId = convOf(cutFirst);
+  const cutFile = path.join(app.wiki, '.dashboard', 'conversations', 'operations', `${cutId}.json`);
+  const cutRecord = JSON.parse(await fs.readFile(cutFile, 'utf8'));
+  await fs.writeFile(cutFile, JSON.stringify({ ...cutRecord, session: { ...cutRecord.session, started: false } }));
+  const carried = await events(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'And refunds?', conversation: cutId }), cookie));
+  const carriedRecord = await recordOf(cutId);
+  check('a session the binary already has is carried on, not started again', carried.list.at(-1)?.name === 'end' && tokensOf(carried).includes('Earlier you asked: "Who handles returns?"') && carriedRecord.session.started === true && carriedRecord.session.id === cutRecord.session.id, tokensOf(carried).slice(0, 120) || JSON.stringify(carried.list.at(-1)?.data));
+
+  /** Starts a question and gives back once the first words are in, with the stream still open. */
+  const begin = async (question) => {
+    const controller = new AbortController();
+    const res = await fetch(`${base}/api/chat`, withCookie({ ...json({ cluster: 'operations', question }), signal: controller.signal }, cookie));
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let seen = '';
+    while (!/event: token/.test(seen)) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      seen += decoder.decode(value, { stream: true });
+    }
+    return { id: seen.match(/"id":"([0-9a-f-]{36})"/)?.[1] ?? '', reader, controller };
+  };
+  const settledTurn = async (id) => {
+    for (let i = 0; i < 100; i++) {
+      const record = await recordOf(id).catch(() => null);
+      if (record?.turns?.length) return record.turns.at(-1);
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    return null;
+  };
+  const left = await begin('What is in the returns policy?');
+  left.controller.abort();
+  const leftTurn = await settledTurn(left.id);
+  check('a reader who goes away mid-answer finds the whole answer kept', !!left.id && !!leftTurn && !leftTurn.error && leftTurn.answer.trim().length > 0, JSON.stringify(leftTurn).slice(0, 160));
+  const halted = await begin('Tell me about refunds.');
+  const stopped = await (await fetch(`${base}/api/chat`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation: halted.id }) }, cookie))).json();
+  halted.controller.abort();
+  const haltedTurn = await settledTurn(halted.id);
+  check('Stop still stops a question that only reads', stopped.stopped === true && !!haltedTurn && !!haltedTurn.error, JSON.stringify({ stopped, haltedTurn }).slice(0, 160));
+  check('Stop needs a conversation, and says when there was nothing to stop', (await fetch(`${base}/api/chat`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation: 'x' }) }, cookie))).status === 400 && (await (await fetch(`${base}/api/chat`, withCookie({ method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ conversation: halted.id }) }, cookie))).json()).stopped === false);
+  }
   const unknown = await fetch(`${base}/api/chat`, withCookie(json({ cluster: 'operations', question: 'x', conversation: '11111111-2222-4333-8444-555555555555' }), cookie));
   check('a conversation that is not there is 404, not a new one in disguise', unknown.status === 404, String(unknown.status));
   const nowhere = await fetch(`${base}/api/chat`, withCookie(json({ cluster: '../operations', question: 'x' }), cookie));

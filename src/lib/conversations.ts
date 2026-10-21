@@ -260,12 +260,26 @@ export async function deleteConversation(cluster: string, id: string): Promise<b
  * would resume a session the first is still writing to. In memory, like the
  * wiki's own lock, because there is one process.
  */
-const globalForTalk = globalThis as typeof globalThis & { __brainTalking?: Set<string> };
-const talking: Set<string> = (globalForTalk.__brainTalking ??= new Set());
+const globalForTalk = globalThis as typeof globalThis & { __brainTalking?: Map<string, (() => void) | null> };
+/** The conversations answering now, each with what stops its run (none for a turn that may write). */
+const talking: Map<string, (() => void) | null> = (globalForTalk.__brainTalking ??= new Map());
 
 export function beginTurn(id: string): void {
   if (talking.has(id)) throw new HttpError(409, 'This conversation is still answering. Wait for it, or stop it.');
-  talking.add(id);
+  talking.set(id, null);
+}
+
+/** What stops the run answering now. Only a turn that reads is given one. */
+export function setStopper(id: string, stop: () => void): void {
+  if (talking.has(id)) talking.set(id, stop);
+}
+
+/** The reader's Stop. True when there was a run to stop. */
+export function stopTurn(id: string): boolean {
+  const stop = talking.get(id);
+  if (!stop) return false;
+  stop();
+  return true;
 }
 
 export function endTurn(id: string): void {

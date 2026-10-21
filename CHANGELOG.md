@@ -30,6 +30,7 @@ What changed in Second Brain, newest first. Each entry names the pull request it
 - This changelog.
 
 ### Fixed
+- "Session ID … is already in use": a conversation whose first reply was cut off (a phone that went to sleep, a failure halfway) could not go on. The app now carries the session on. And a reply is no longer stopped when the reader goes away: it finishes and is kept, so reopening the conversation shows it. Stop still stops a reply in Discuss.
 - Opening the front page no longer marks a job that is still running as interrupted; the ingest queue had planned one transcript twice because of it (#29).
 
 ### Changed

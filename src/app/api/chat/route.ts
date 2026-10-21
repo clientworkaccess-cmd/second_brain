@@ -13,6 +13,8 @@ import {
   conversationSource,
   createConversation,
   endTurn,
+  setStopper,
+  stopTurn,
   isConversationId,
   readConversation,
   saveConversation,
@@ -142,8 +144,6 @@ export async function POST(req: NextRequest) {
       timeoutMs: mode === 'work' ? INGEST_TIMEOUT_MS : CHAT_TIMEOUT_MS,
     });
 
-  let run: AgentRun | null = null;
-
   return sseResponse(({ send, close }) => {
     (async () => {
       const turn: ConversationTurn = {
@@ -202,10 +202,12 @@ export async function POST(req: NextRequest) {
         let sessionId = record.session.id;
         let resume = record.session.started;
         let recap = resume ? '' : recapPrompt(record.turns);
+        let carriedOn = false;
 
         for (;;) {
           const current = start(sessionId, resume, recap);
-          run = current;
+          // The reader's Stop ends a turn that only reads (DELETE below); one that may write always finishes.
+          if (mode !== 'work') setStopper(record.id, () => current.kill());
 
           let streamed = 0;
           const activity = (async () => {
@@ -226,6 +228,17 @@ export async function POST(req: NextRequest) {
             // read what it needed. This is the answer it settled on.
             if (result.text.trim()) send('final', { text: result.text });
             break;
+          }
+
+          // The binary has this session already: a first turn began it and was cut
+          // off before it finished, so the record never learned it had started.
+          // Carry it on rather than start it again, which the binary refuses.
+          const begun = !resume && !carriedOn && streamed === 0 && /already in use/i.test(`${result.errorDetail ?? ''} ${current.stderrTail()}`);
+          if (begun) {
+            carriedOn = true;
+            resume = true;
+            recap = '';
+            continue;
           }
 
           // The binary no longer has this conversation's session: pick it back
@@ -311,11 +324,20 @@ export async function POST(req: NextRequest) {
       }
     })();
 
-    // If the reader goes away, a question that only reads is stopped. One that
-    // may write is let finish: it is checked and committed, and the reader
-    // finds it in the conversation when they come back.
-    return () => {
-      if (mode !== 'work') run?.kill();
-    };
+    // If the reader goes away (a phone that went to sleep, a closed tab), the
+    // turn is let finish: the answer is kept, and the reader finds it in the
+    // conversation when they come back. Stopping it is the Stop button's (DELETE).
+    return () => {};
   });
+}
+
+/**
+ * The reader's Stop: ends the run answering in this conversation, if it only
+ * reads. A turn that may write is not stopped halfway; it finishes and can be
+ * undone.
+ */
+export async function DELETE(req: NextRequest) {
+  const body = (await req.json().catch(() => ({}))) as { conversation?: unknown };
+  if (!isConversationId(body.conversation)) return NextResponse.json({ error: 'Which conversation?' }, { status: 400 });
+  return NextResponse.json({ stopped: stopTurn(body.conversation) });
 }
