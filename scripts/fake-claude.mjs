@@ -76,6 +76,11 @@ const sessionFile = path.join(SESSIONS, `${SESSION.replace(/[^a-z0-9-]/gi, '')}.
 const KEPT = argv.includes('--no-session-persistence') ? null : sessionFile;
 /** What was asked before in this conversation. Fails the run when a resumed conversation is not there. */
 async function earlier() {
+  // Starting a session that is already there fails, as it does with the real binary.
+  if (!RESUMED && KEPT && existsSync(sessionFile)) {
+    process.stderr.write(`Error: Session ID ${SESSION} is already in use.\n`);
+    process.exit(1);
+  }
   if (!RESUMED) return [];
   try {
     return JSON.parse(await fs.readFile(sessionFile, 'utf8')).questions ?? [];
