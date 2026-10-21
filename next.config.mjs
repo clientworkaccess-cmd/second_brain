@@ -24,6 +24,17 @@ const nextConfig = {
   // No need to tell every caller what the server is built with.
   poweredByHeader: false,
 
+  // Where an MCP client looks for how to sign in (lib/oauth.ts). Public in lib/gate.ts under these names.
+  async rewrites() {
+    return [
+      { source: '/.well-known/oauth-protected-resource', destination: '/api/oauth/resource-metadata' },
+      { source: '/.well-known/oauth-protected-resource/mcp', destination: '/api/oauth/resource-metadata' },
+      { source: '/.well-known/oauth-authorization-server', destination: '/api/oauth/server-metadata' },
+      { source: '/.well-known/oauth-authorization-server/mcp', destination: '/api/oauth/server-metadata' },
+      { source: '/.well-known/openid-configuration', destination: '/api/oauth/server-metadata' },
+    ];
+  },
+
   experimental: {
     // Uploads are whole documents, not avatars.
     serverActions: { bodySizeLimit: '50mb' },

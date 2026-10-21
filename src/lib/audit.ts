@@ -42,7 +42,13 @@ export type AuditEvent =
   | 'conversation-undone'
   | 'conversation-deleted'
   | 'memory-changed'
-  | 'ingest-received';
+  | 'ingest-received'
+  | 'mcp-registered'
+  | 'mcp-authorized'
+  | 'mcp-refused'
+  | 'mcp-connected'
+  | 'mcp-disconnected'
+  | 'mcp-read';
 
 export interface AuditEntry {
   at: string;

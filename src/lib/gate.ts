@@ -8,8 +8,28 @@
 
 export type Gate = 'allow' | 'to-login' | 'to-home' | 'unauthorized';
 
+/**
+ * Claude's way in (lib/mcp.ts, lib/oauth.ts). `/mcp` checks its own bearer
+ * token on every message; the rest says where and how to get one, takes a
+ * registration, or trades a code the owner granted for tokens. Granting needs
+ * the login: `/oauth/authorize` and `/api/oauth/authorize` are not here.
+ */
+const MCP_PUBLIC = [
+  '/mcp',
+  '/.well-known/oauth-protected-resource',
+  '/.well-known/oauth-protected-resource/mcp',
+  '/.well-known/oauth-authorization-server',
+  '/.well-known/oauth-authorization-server/mcp',
+  '/.well-known/openid-configuration',
+  '/api/oauth/server-metadata',
+  '/api/oauth/resource-metadata',
+  '/api/oauth/register',
+  '/api/oauth/token',
+  '/api/oauth/revoke',
+];
+
 /** `/icon.png` is the app's mark, which the browser asks for on the login page too. `/api/auth/state` is what the middleware asks for the epoch and the revoked sessions. `/api/health` says the server is up and nothing else. `/api/ingest` takes documents from the server itself only, and refuses anything that came through the proxy (lib/ingest.ts). */
-const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/api/auth/captcha', '/api/auth/code', '/api/auth/verify', '/api/auth/reset', '/api/auth/reset/complete', '/api/auth/state', '/api/health', '/api/ingest', '/favicon.ico', '/icon.png']);
+const PUBLIC_EXACT = new Set(['/login', '/api/auth/login', '/api/auth/captcha', '/api/auth/code', '/api/auth/verify', '/api/auth/reset', '/api/auth/reset/complete', '/api/auth/state', '/api/health', '/api/ingest', '/favicon.ico', '/icon.png', ...MCP_PUBLIC]);
 
 /**
  * Next's own build output. Hashed file names, no user data.

@@ -69,7 +69,8 @@ export async function middleware(request: NextRequest) {
     case 'unauthorized':
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     case 'to-login':
-      return redirectTo(request, pathname === '/' ? '/login' : `/login?from=${encodeURIComponent(pathname)}`);
+      // With the query: /oauth/authorize carries the whole request in it, and the login brings the owner back to it.
+      return redirectTo(request, pathname === '/' ? '/login' : `/login?from=${encodeURIComponent(pathname + request.nextUrl.search)}`);
   }
 }
 

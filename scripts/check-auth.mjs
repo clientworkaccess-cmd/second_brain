@@ -12,7 +12,7 @@
  *   BASE_URL=http://localhost:3000 npm run check:auth
  */
 import path from 'node:path';
-import { randomBytes, scryptSync } from 'node:crypto';
+import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { compileLib, OUT_DIR } from './compile-lib.mjs';
 
@@ -62,6 +62,8 @@ const PROTECTED = [
   '/_next/image', '/_next/image/',
   // Near misses of the app's mark, which is public.
   '/icon.png/', '/icon.png/x', '/icons.png', '/c/icon.png',
+  // Granting Claude access needs the login; so does seeing and ending connections. Near misses of /mcp.
+  '/oauth/authorize', '/api/oauth/authorize', '/api/oauth/connections', '/mcp/', '/mcp/x', '/mcps', '/.well-known/', '/.well-known/x', '/api/oauth/tokens', '/api/oauth',
 ];
 const leaks = PROTECTED.filter((p) => gate(p, false) === 'allow');
 check('nothing protected gets through without a session', leaks.length === 0, leaks.length ? `open: ${leaks.join(', ')}` : `${PROTECTED.length} paths`);
@@ -73,6 +75,30 @@ check('the epoch and the revoked ids are reachable, for the middleware', gate('/
 check('build output is reachable', isPublicPath('/_next/static/chunks/main.js') && isPublicPath('/favicon.ico'));
 check('the app’s mark is reachable, so the login page can show it', isPublicPath('/icon.png'));
 check('the health check is reachable, and nothing else under it', isPublicPath('/api/health') && !isPublicPath('/api/health/x') && !isPublicPath('/api/healthz'));
+{
+  // Claude over MCP (lib/oauth.ts, lib/mcp.ts).
+  const { redirectAllowed, pkceOk, hashToken, newToken, authorizationServerMetadata, protectedResourceMetadata } = await import(lib('oauth'));
+  const { handleRpc, PROTOCOL_VERSIONS } = await import(lib('mcp'));
+  check('/mcp and the sign-in metadata skip the login, and decide for themselves', ['/mcp', '/.well-known/oauth-protected-resource', '/.well-known/oauth-authorization-server', '/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'].every((p) => isPublicPath(p)));
+  check('codes go only to Claude, or to the owner’s own machine', redirectAllowed('https://claude.ai/api/mcp/auth_callback') && redirectAllowed('https://claude.com/api/mcp/auth_callback') && redirectAllowed('http://localhost:33418/callback') && redirectAllowed('http://127.0.0.1:5000/cb'));
+  check('never anywhere else', ['https://evil.example/cb', 'http://claude.ai/api/mcp/auth_callback', 'https://claude.ai.evil.example/x', 'https://user:pw@claude.ai/x', 'https://claude.ai/x#frag', 'javascript:alert(1)', 'http://10.0.0.5/cb', 'not a url'].every((u) => !redirectAllowed(u)));
+  check('MCP_REDIRECT_HOSTS adds a host, https only', redirectAllowed('https://other.example/cb', ['other.example']) && !redirectAllowed('http://other.example/cb', ['other.example']));
+  const verifier = newToken();
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  check('PKCE: the verifier must hash to the challenge', pkceOk(verifier, challenge) && !pkceOk(newToken(), challenge) && !pkceOk(challenge, challenge) && !pkceOk('short', challenge) && !pkceOk(undefined, challenge));
+  check('tokens are random and kept as hashes', newToken() !== newToken() && hashToken('a') === hashToken('a') && hashToken('a').length === 64 && newToken().length >= 43);
+  const asm = authorizationServerMetadata('https://brain.example');
+  const prm = protectedResourceMetadata('https://brain.example');
+  check('the metadata: S256 only, codes only, and /mcp as the resource', asm.code_challenge_methods_supported.join() === 'S256' && asm.response_types_supported.join() === 'code' && prm.resource === 'https://brain.example/mcp' && prm.authorization_servers[0] === asm.issuer);
+  const init = await handleRpc({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } }, '1.0.0');
+  const oddVersion = await handleRpc({ jsonrpc: '2.0', id: 2, method: 'initialize', params: { protocolVersion: '1999-01-01' } }, '1.0.0');
+  check('initialize answers in the client’s version when it knows it, else its own newest', init.result.protocolVersion === '2025-03-26' && oddVersion.result.protocolVersion === PROTOCOL_VERSIONS[0] && init.result.capabilities.tools && typeof init.result.instructions === 'string');
+  const tools = (await handleRpc({ jsonrpc: '2.0', id: 3, method: 'tools/list' }, '1')).result.tools;
+  check('every tool only reads, and says so', tools.length >= 5 && tools.every((t) => t.annotations.readOnlyHint === true && t.inputSchema.type === 'object'));
+  check('nothing that writes is offered', !tools.some((t) => /write|save|delete|create|update|file|upload|edit/i.test(t.name)));
+  check('a notification gets no answer', (await handleRpc({ jsonrpc: '2.0', method: 'notifications/initialized' }, '1')) === null);
+  check('an unknown method, an unknown tool and nonsense are errors', (await handleRpc({ jsonrpc: '2.0', id: 4, method: 'resources/write' }, '1')).error.code === -32601 && (await handleRpc({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'delete_everything' } }, '1')).error.code === -32602 && (await handleRpc({ nope: true }, '1')).error.code === -32600);
+}
 {
   const { ingestRefusal, parseIngest, filenameFor } = await import(lib('ingest'));
   const h = (o) => ({ get: (n) => o[n] ?? null });

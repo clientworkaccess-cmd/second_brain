@@ -3,6 +3,7 @@ import { ShieldCheck } from 'lucide-react';
 import { readAudit } from '@/lib/audit';
 import { SESSION_COOKIE, secondFactorOn } from '@/lib/env-auth';
 import { sessionIdOf } from '@/lib/session';
+import { listConnections } from '@/lib/oauth';
 import { listSessions } from '@/lib/sessions';
 import { Center } from '@/components/frame/Frame';
 import { StatusItems } from '@/components/frame/controls';
@@ -13,7 +14,7 @@ export const dynamic = 'force-dynamic';
 /** Who is signed in, the second factor, and the trail of what was done. */
 export default async function SecurityPage() {
   const mine = sessionIdOf((await cookies()).get(SESSION_COOKIE)?.value);
-  const [open, trail] = await Promise.all([listSessions(), readAudit(80)]);
+  const [open, apps, trail] = await Promise.all([listSessions(), listConnections(), readAudit(80)]);
   const sessions = open.map((s) => ({ key: s.id, id: s.id.slice(0, 8), createdAt: s.createdAt, expiresAt: s.expiresAt, client: s.client, agent: s.agent, current: s.id === mine }));
   const secondFactor = secondFactorOn();
 
@@ -30,7 +31,7 @@ export default async function SecurityPage() {
               </p>
             </div>
           </header>
-          <SecurityPanel sessions={sessions} trail={trail} secondFactor={secondFactor} />
+          <SecurityPanel sessions={sessions} apps={apps} trail={trail} secondFactor={secondFactor} />
         </div>
       </Center>
       <StatusItems>
