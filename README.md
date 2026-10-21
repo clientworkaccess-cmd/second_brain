@@ -352,9 +352,15 @@ everything Claude itself can do around it.
 opens the brain's own sign-in (password and code), then asks "Claude wants to use your brain"; Allow, and it is
 connected. Claude Code: `claude mcp add --transport http brain https://<your site>/mcp`, then `/mcp` to sign in.
 
-**What it can do.** Read only: `list_brains`, `search_brain`, `read_page` (by title or path, with what it links to
-and what links to it), `list_pages`, `recent_changes`. Nothing that changes, files or deletes. It sees what the app
-shows, never `raw/`, `.dashboard` or anything outside a brain.
+**What it can do.** Read: `list_brains`, `search_brain`, `read_page` (by title or path, with what it links to and
+what links to it), `list_pages`, `recent_changes`. File: `file_document` sends the full text of a document the user
+pasted or attached into the same queue n8n uses (see "Documents sent in"); the brain's own filing agent plans and
+files it at once, with its rules, and every filing can be undone in the app. The same text sent twice is filed once.
+`filing_status` says what happened to it and which pages it created or updated. Claude never edits or deletes a page
+itself, and sees what the app shows, never `raw/`, `.dashboard` or anything outside a brain.
+
+**Built on** the official TypeScript SDK (`@modelcontextprotocol/sdk`, Streamable HTTP transport, stateless, JSON
+answers), inside the app: same process, same port, the same nginx `location /`. No second service.
 
 **How it is kept safe** (`src/lib/oauth.ts`, `src/app/mcp/route.ts`):
 

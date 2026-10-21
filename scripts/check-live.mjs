@@ -742,7 +742,7 @@ try {
     const loginFrom = new URL(anon.headers.get('location') ?? '/', base).searchParams.get('from');
     check('asking the owner needs the login, and the login comes back to the same request', [302, 303, 307].includes(anon.status) && loginFrom === `/oauth/authorize?${q}`, `${anon.status} ${loginFrom}`);
     const consent = await (await plain(`/oauth/authorize?${q}`, { headers: { cookie } })).text();
-    check('signed in, the owner is asked, with the app named and what it can do', consent.includes('Claude') && consent.includes('wants to use your brain') && consent.includes('cannot change') && consent.includes('name="decision"'));
+    check('signed in, the owner is asked, with the app named and what it can do', consent.includes('Claude') && consent.includes('wants to use your brain') && consent.includes('cannot edit or delete') && consent.includes('name="decision"'));
     const unknownClient = await (await plain(`/oauth/authorize?${new URLSearchParams({ ...Object.fromEntries(q), client_id: 'nobody' })}`, { headers: { cookie } })).text();
     check('an app that never registered is not asked about', unknownClient.includes('not registered') && !unknownClient.includes('name="decision"'));
     const answer = (decision, origin = base) =>
@@ -773,7 +773,7 @@ try {
     check('with the token, Claude can start', init.result?.protocolVersion === '2025-06-18' && !!init.result?.capabilities?.tools && init.result?.serverInfo?.name === 'second-brain', JSON.stringify(init).slice(0, 120));
     check('a notification is taken without an answer', (await rpc('notifications/initialized', undefined)).status === 202);
     const listedTools = (await (await rpc('tools/list', {})).json()).result?.tools ?? [];
-    check('it offers the tools, all read-only', ['list_brains', 'search_brain', 'read_page', 'list_pages', 'recent_changes'].every((n) => listedTools.some((t) => t.name === n && t.annotations?.readOnlyHint === true)), listedTools.map((t) => t.name).join(','));
+    check('it offers the tools: the ones that read say so, and one files', ['list_brains', 'search_brain', 'read_page', 'list_pages', 'recent_changes', 'filing_status'].every((n) => listedTools.some((t) => t.name === n && t.annotations?.readOnlyHint === true)) && listedTools.some((t) => t.name === 'file_document' && t.annotations?.readOnlyHint === false), listedTools.map((t) => t.name).join(','));
     const call = async (name, args) => (await (await rpc('tools/call', { name, arguments: args })).json()).result;
     const brains = await call('list_brains', {});
     check('it lists the brains', brains?.isError === false && brains.content[0].text.includes('operations'), brains?.content?.[0]?.text.slice(0, 80));
@@ -792,6 +792,37 @@ try {
     check('a made-up token is refused', madeUp.status === 401);
     const fromAPage = await plain('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', origin: 'https://evil.example', authorization: `Bearer ${tok.access_token}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
     check('a web page cannot use it, even with a token', fromAPage.status === 403);
+
+    // The SDK's own client, over HTTP, the way a production MCP client talks to it.
+    {
+      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
+      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
+      const sdkClient = new Client({ name: 'check-sdk', version: '1' });
+      await sdkClient.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { authorization: `Bearer ${tok.access_token}` } } }));
+      const sdkTools = (await sdkClient.listTools()).tools.map((t) => t.name);
+      const sdkHits = await sdkClient.callTool({ name: 'search_brain', arguments: { brain: 'operations', query: 'refund' } });
+      check('the official SDK client connects over HTTP, lists the tools and calls one', sdkTools.includes('file_document') && sdkTools.includes('read_page') && sdkHits.isError === false && JSON.stringify(sdkHits.content).includes('refund-policy'), sdkTools.join(','));
+
+      // Filing a document from Claude: sent in, planned and filed at once by the brain, reported back.
+      const doc = { brain: 'operations', title: 'Courier change notes', text: 'From 1 November returns go through Acme Freight instead of the old courier. The warehouse team books the pickups.', date: '2026-10-20' };
+      const sent = await sdkClient.callTool({ name: 'file_document', arguments: doc });
+      const sentText = sent.content?.[0]?.text ?? '';
+      const sentId = sentText.match(/as ([0-9a-f-]{36})/)?.[1] ?? '';
+      check('file_document sends a document in to be filed', sent.isError === false && !!sentId, sentText);
+      let status = '';
+      for (let i = 0; i < 150 && !/· filed/.test(status); i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        status = (await sdkClient.callTool({ name: 'filing_status', arguments: { id: sentId } })).content?.[0]?.text ?? '';
+      }
+      check('the brain files it at once, and filing_status says what it changed', /· filed/.test(status) && /new pages, \d+ updated/.test(status) && /can be undone/.test(status), status);
+      const again = await sdkClient.callTool({ name: 'file_document', arguments: doc });
+      check('the same document sent again is not filed twice', again.isError === false && /sent before/.test(again.content?.[0]?.text ?? ''), again.content?.[0]?.text);
+      const recentList = (await sdkClient.callTool({ name: 'filing_status', arguments: { brain: 'operations' } })).content?.[0]?.text ?? '';
+      check('filing_status without an id lists the latest sent in', recentList.includes('Courier change notes'), recentList.slice(0, 160));
+      const noText = await sdkClient.callTool({ name: 'file_document', arguments: { brain: 'operations', title: 'Empty', text: '' } });
+      check('a document without text is refused', noText.isError === true);
+      await sdkClient.close();
+    }
 
     const refreshed = await (await token({ grant_type: 'refresh_token', refresh_token: tok.refresh_token, client_id: reg.client_id })).json();
     check('the refresh token gives new tokens, and a new refresh token', typeof refreshed.access_token === 'string' && refreshed.refresh_token !== tok.refresh_token && refreshed.access_token !== tok.access_token);
@@ -820,7 +851,7 @@ try {
   // ---------------------------------------------------------- the trail
   const trail = (await fs.readFile(path.join(app.wiki, '.dashboard', 'audit.log'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   const kinds = new Set(trail.map((e) => e.event));
-  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web', 'memory-changed', 'ingest-received', 'mcp-registered', 'mcp-authorized', 'mcp-refused', 'mcp-connected', 'mcp-read', 'mcp-disconnected'];
+  const wanted = ['sign-in', 'sign-in-refused', 'sign-out', 'session-revoked', 'signed-out-everywhere', 'cluster-created', 'filing-planned', 'filing-approved', 'filing-discarded', 'filing-undone', 'settings-changed', 'filing-automatic', 'page-saved', 'image-added', 'page-renamed', 'page-deleted', 'sign-in-password', 'sign-in-code-sent', 'conversation-started', 'conversation-wrote', 'conversation-undone', 'conversation-deleted', 'conversation-web', 'memory-changed', 'ingest-received', 'mcp-registered', 'mcp-authorized', 'mcp-refused', 'mcp-connected', 'mcp-read', 'mcp-filed', 'mcp-disconnected'];
   check('every kind of action is in the trail', wanted.every((w) => kinds.has(w)), wanted.filter((w) => !kinds.has(w)).join(', ') || `${trail.length} entries`);
   check('the trail says when, from where and which session, never a password or a cookie', trail.every((e) => e.at && e.event) && trail.filter((e) => e.event === 'sign-in').every((e) => e.client === '198.51.100.1' || e.client === '198.51.100.3' || e.client === '198.51.100.4' || e.client === '203.0.113.51') && !trail.some((e) => JSON.stringify(e).includes(PASSWORD) || JSON.stringify(e).includes(cookie.slice(14))), trail.filter((e) => e.event === 'sign-in').map((e) => e.client).join(','));
 

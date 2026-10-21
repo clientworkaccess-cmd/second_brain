@@ -76,6 +76,7 @@ const SAID: Record<string, string> = {
   'mcp-connected': 'App connected',
   'mcp-disconnected': 'App disconnected',
   'mcp-read': 'Read by a connected app',
+  'mcp-filed': 'Document sent in by a connected app',
 };
 
 const WARY = new Set(['conversation-undone', 'conversation-deleted', 'sign-in-refused', 'password-reset-requested', 'password-reset', 'password-changed', 'password-refused', 'session-revoked', 'signed-out-everywhere', 'filing-undone', 'page-deleted', 'mcp-authorized', 'mcp-disconnected']);
@@ -212,7 +213,7 @@ function ConnectedApps({ apps }: { apps: ConnectedApp[] }) {
       <ul className="mt-2 divide-y divide-line rounded border border-line bg-panel">
         {apps.length === 0 && (
           <li className="px-3.5 py-3 text-ui text-muted">
-            None. To use the brain from Claude, add a custom connector there with the address <code>/mcp</code> on this site; it can read, never change.
+            None. To use the brain from Claude, add a custom connector there with the address <code>/mcp</code> on this site; it can read, and send documents in to be filed.
           </li>
         )}
         {apps.map((a) => (
@@ -221,7 +222,7 @@ function ConnectedApps({ apps }: { apps: ConnectedApp[] }) {
             <span className="min-w-0 flex-1">
               <span className="block text-ui text-ink">{a.name}</span>
               <span className="block text-small text-muted">
-                reads only · connected {when(a.createdAt)} · last used {when(a.lastUsedAt)}
+                reads, sends documents to file · connected {when(a.createdAt)} · last used {when(a.lastUsedAt)}
               </span>
             </span>
             <button type="button" className="icon-button" title="Disconnect: it stops working at once" disabled={busy !== null} onClick={() => end(a.id)}>

@@ -1,70 +1,61 @@
+import { createHash } from 'node:crypto';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { z } from 'zod';
 import { listClusters } from './clusters';
 import { HttpError, assertClusterName } from './config';
+import { enqueue, ensureIngestWorker, listItems, readItem, type IngestItem } from './ingest';
+import { getJob } from './jobs';
+import { readPlan } from './plans';
 import { searchCluster } from './search';
 import { backlinksOf, listPages, loadWiki, readLog, readPage } from './wiki';
 import { resolveLink } from './wikilinks';
 
 /**
- * The brain as an MCP server (Model Context Protocol), for Claude: the
- * JSON-RPC messages of the Streamable HTTP transport, answered as plain JSON
- * (no event stream, no sessions), and the tools.
+ * The brain as an MCP server (Model Context Protocol), for Claude, built on the
+ * official TypeScript SDK (`@modelcontextprotocol/sdk`): app/mcp/route.ts makes
+ * one of these per request and answers it over the SDK's Streamable HTTP
+ * transport. Who may call it is decided before that (lib/oauth.ts).
  *
- * The tools only read. They see what the app shows: the brains, their pages,
- * search, the log. Never the raw sources, the app's own files or anything
- * outside a brain. Who may call them is decided before this (app/mcp/route.ts
- * and lib/oauth.ts).
+ * The tools read what the app shows (the brains, their pages, search, the
+ * log), never the raw sources, the app's own files or anything outside a
+ * brain. One writes: `file_document` sends a document in to be filed, the way
+ * n8n sends email and transcripts (lib/ingest.ts). The app's own filing agent
+ * plans and files it with the brain's rules, at once, and every filing can be
+ * undone in the app. Claude never edits a page itself.
  */
 
-export const PROTOCOL_VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05'];
 const PAGE_MAX_CHARS = 60_000;
-
-export interface RpcRequest {
-  jsonrpc: '2.0';
-  id?: string | number | null;
-  method: string;
-  params?: Record<string, unknown>;
-}
-
-export type RpcResponse =
-  | { jsonrpc: '2.0'; id: string | number | null; result: unknown }
-  | { jsonrpc: '2.0'; id: string | number | null; error: { code: number; message: string } };
+const STATUS_ITEMS = 5;
 
 /** What a tool call did, for the audit trail. */
 export interface Called {
   tool: string;
   brain?: string;
   page?: string;
+  /** Set by a tool that changed something. */
+  wrote?: boolean;
 }
 
-interface Tool {
-  name: string;
-  title: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-  run: (args: Record<string, unknown>, called: Called) => Promise<string>;
-}
+class ToolError extends Error {}
 
-const brainArg = {
-  type: 'string',
-  description: 'The brain to use, by name (from list_brains). May be left out when there is only one.',
-};
+const brainArg = z.string().max(64).optional().describe('The brain to use, by name (from list_brains). May be left out when there is only one.');
 
 /** The brain a call means: the one named, or the only one there is. */
-async function brainOf(args: Record<string, unknown>, called: Called): Promise<string> {
-  const named = typeof args.brain === 'string' ? args.brain.trim().toLowerCase() : '';
+async function brainOf(named: string | undefined, called: Called): Promise<string> {
+  const name = (named ?? '').trim().toLowerCase();
   const brains = await listClusters();
-  if (!named) {
+  if (!name) {
     if (brains.length === 1) return (called.brain = brains[0].name);
     throw new ToolError(`Say which brain: ${brains.map((b) => b.name).join(', ') || 'there are none yet'}.`);
   }
-  const name = assertClusterName(named);
-  if (!brains.some((b) => b.name === name)) throw new ToolError(`There is no brain called "${name}". There are: ${brains.map((b) => b.name).join(', ')}.`);
-  return (called.brain = name);
+  const checked = assertClusterName(name);
+  if (!brains.some((b) => b.name === checked)) throw new ToolError(`There is no brain called "${checked}". There are: ${brains.map((b) => b.name).join(', ')}.`);
+  return (called.brain = checked);
 }
 
 /** A page by its path or its title, as a wikilink would name it. */
-async function slugOf(brain: string, page: unknown): Promise<string> {
-  const said = typeof page === 'string' ? page.trim().replace(/^\[\[|\]\]$/g, '').replace(/\.md$/, '') : '';
+async function slugOf(brain: string, page: string): Promise<string> {
+  const said = page.trim().replace(/^\[\[|\]\]$/g, '').replace(/\.md$/, '');
   if (!said) throw new ToolError('Say which page, by its title or its path.');
   const wiki = await loadWiki(brain);
   if (wiki.entries.has(said)) return said;
@@ -73,169 +64,197 @@ async function slugOf(brain: string, page: unknown): Promise<string> {
   throw new ToolError(`There is no page "${said}" in ${brain}. Use search_brain to find it.`);
 }
 
-class ToolError extends Error {}
-
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}\n\n[… cut here: the page is longer than ${max} characters]` : text;
 }
 
-const count = (n: unknown, fallback: number, max: number): number => {
-  const v = typeof n === 'number' ? n : Number(n);
-  return Number.isFinite(v) && v >= 1 ? Math.min(Math.floor(v), max) : fallback;
-};
-
-export const TOOLS: Tool[] = [
-  {
-    name: 'list_brains',
-    title: 'List brains',
-    description: 'The brains (knowledge bases) there are, with what each is about and how many pages it has. Start here when you do not know which brain to use.',
-    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    async run(_args, called) {
-      called.tool = 'list_brains';
-      const brains = await listClusters();
-      if (brains.length === 0) return 'There are no brains yet.';
-      return brains.map((b) => `- ${b.name}: ${b.title}${b.scope ? `. ${b.scope}` : ''} (${b.pageCount} pages${b.updatedAt ? `, last changed ${b.updatedAt.slice(0, 10)}` : ''})`).join('\n');
-    },
-  },
-  {
-    name: 'search_brain',
-    title: 'Search a brain',
-    description: 'Search the pages of a brain by words. Returns page titles, their paths and the line around the match. Use read_page to read one. Search a few ways (names, synonyms) when the first search finds little.',
-    inputSchema: {
-      type: 'object',
-      properties: { brain: brainArg, query: { type: 'string', description: 'The words to look for.' }, limit: { type: 'number', description: 'At most this many pages (1–30, default 15).' } },
-      required: ['query'],
-      additionalProperties: false,
-    },
-    async run(args, called) {
-      called.tool = 'search_brain';
-      const brain = await brainOf(args, called);
-      const query = typeof args.query === 'string' ? args.query.trim() : '';
-      if (!query) throw new ToolError('Say what to search for.');
-      if (query.length > 200) throw new ToolError('That search is too long.');
-      const hits = await searchCluster(brain, query, count(args.limit, 15, 30));
-      if (hits.length === 0) return `Nothing in ${brain} matches "${query}".`;
-      return hits.map((h) => `- ${h.title} (${h.slug})\n  ${h.snippet}`).join('\n');
-    },
-  },
-  {
-    name: 'read_page',
-    title: 'Read a page',
-    description: 'Read one page of a brain in full: its properties, its text, the pages it links to and the pages that link to it. Name it by its title or its path. "index" is the brain\'s table of contents.',
-    inputSchema: {
-      type: 'object',
-      properties: { brain: brainArg, page: { type: 'string', description: 'The page title (as in [[Title]]) or its path, e.g. "entities/warehouse-team" or "index".' } },
-      required: ['page'],
-      additionalProperties: false,
-    },
-    async run(args, called) {
-      called.tool = 'read_page';
-      const brain = await brainOf(args, called);
-      const slug = await slugOf(brain, args.page);
-      called.page = slug;
-      const [page, backlinks] = await Promise.all([readPage(brain, slug), backlinksOf(brain, slug)]);
-      const props = page.properties.length ? `${page.properties.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\n` : '';
-      const linked = page.links.length ? `\n\nLinks to: ${[...new Set(page.links)].slice(0, 100).join(', ')}` : '';
-      const linking = backlinks.length ? `\nLinked from: ${backlinks.slice(0, 100).map((b) => b.title).join(', ')}` : '';
-      return `# ${page.title}\nPath: ${page.slug} · updated ${page.updatedAt.slice(0, 10)}\n\n${props}${clip(page.body.trim(), PAGE_MAX_CHARS)}${linked}${linking}`;
-    },
-  },
-  {
-    name: 'list_pages',
-    title: 'List pages',
-    description: 'The pages of a brain, folder by folder (titles and paths). Give a folder to list only that one.',
-    inputSchema: {
-      type: 'object',
-      properties: { brain: brainArg, folder: { type: 'string', description: 'Only this folder, e.g. "entities".' } },
-      additionalProperties: false,
-    },
-    async run(args, called) {
-      called.tool = 'list_pages';
-      const brain = await brainOf(args, called);
-      const listing = await listPages(brain);
-      const only = typeof args.folder === 'string' ? args.folder.trim().replace(/\/$/, '') : '';
-      const folders = listing.folders.filter((f) => !only || f.dir === only || f.dir.endsWith(`/${only}`));
-      if (only && folders.length === 0) throw new ToolError(`There is no folder "${only}". There are: ${listing.folders.map((f) => f.dir).join(', ')}.`);
-      const lines: string[] = [];
-      if (!only && listing.root.length) lines.push(`## (top)\n${listing.root.map((p) => `- ${p.title} (${p.slug})`).join('\n')}`);
-      for (const f of folders) lines.push(`## ${f.label} (${f.dir}), ${f.pages.length} pages\n${f.pages.map((p) => `- ${p.title} (${p.slug})`).join('\n')}`);
-      return clip(`${listing.total} pages in ${brain}.\n\n${lines.join('\n\n')}`, PAGE_MAX_CHARS);
-    },
-  },
-  {
-    name: 'recent_changes',
-    title: 'Recent changes',
-    description: 'What was filed or changed in a brain lately, newest first, from its log: what came in and which pages it touched.',
-    inputSchema: {
-      type: 'object',
-      properties: { brain: brainArg, limit: { type: 'number', description: 'At most this many entries (1–50, default 15).' } },
-      additionalProperties: false,
-    },
-    async run(args, called) {
-      called.tool = 'recent_changes';
-      const brain = await brainOf(args, called);
-      const entries = await readLog(brain, count(args.limit, 15, 50));
-      if (entries.length === 0) return `Nothing has been logged in ${brain} yet.`;
-      return entries.map((e) => `- ${e.when} · ${e.action} · ${e.subject}${e.details.length ? `\n${e.details.slice(0, 8).map((d) => `  ${d}`).join('\n')}` : ''}`).join('\n');
-    },
-  },
-];
-
-export const INSTRUCTIONS =
-  "The owner's second brain: the businesses' knowledge, kept as linked pages. Use list_brains to see what there is, search_brain to find pages and read_page to read them (\"index\" is a brain's table of contents). Facts about the businesses come from these pages; name the pages you used. Read-only.";
-
-function toolList() {
-  return TOOLS.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema, annotations: { readOnlyHint: true, openWorldHint: false } }));
+/** The same document sent twice is filed once: its id is its content. */
+export function sourceIdFor(brain: string, title: string, text: string): string {
+  return `claude:${createHash('sha256').update(`${brain}\n${title.trim()}\n${text.trim()}`).digest('hex').slice(0, 40)}`;
 }
 
-const ok = (id: RpcRequest['id'], result: unknown): RpcResponse => ({ jsonrpc: '2.0', id: id ?? null, result });
-const fail = (id: RpcRequest['id'], code: number, message: string): RpcResponse => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } });
+/** One document sent in, as filing_status reports it. */
+async function statusOf(item: IngestItem): Promise<string> {
+  const head = `- ${item.title} (${item.id}) · sent ${item.receivedAt.slice(0, 16).replace('T', ' ')} UTC · ${item.state}`;
+  if (item.state === 'failed') return `${head}\n  It could not be filed: ${item.error ?? 'no reason given'}`;
+  if (!item.jobId) return `${head}\n  Waiting its turn.`;
+  const [job, plan] = await Promise.all([getJob(item.jobId), readPlan(item.jobId)]);
+  const lines = [head];
+  if (job?.diff) lines.push(`  ${job.diff.newPages} new pages, ${job.diff.updatedPages} updated, ${job.diff.newConnections} new links${job.commit ? ` (saved as ${job.commit.slice(0, 7)}; it can be undone in the app)` : ''}`);
+  else if (job) lines.push(`  ${job.status === 'planning' ? 'Being planned.' : job.status === 'executing' ? 'Being filed.' : `Filing: ${job.status}.`}`);
+  if (plan?.pages.length) lines.push(`  Pages: ${plan.pages.map((p) => `${p.name}${p.existing ? ' (updated)' : ' (new)'}`).join(', ')}`);
+  if (job?.error) lines.push(`  Problem: ${job.error}`);
+  return lines.join('\n');
+}
+
+export const INSTRUCTIONS =
+  "The owner's second brain: the businesses' knowledge, kept as linked pages. Use list_brains to see what there is, search_brain to find pages and read_page to read them (\"index\" is a brain's table of contents). Facts about the businesses come from these pages; name the pages you used. To add a document (one the user pastes or attaches), send its full text with file_document: the brain files it with its own rules, and filing_status says what it changed. Never file anything the user did not ask you to file.";
+
+type Text = { content: { type: 'text'; text: string }[]; isError: boolean };
 
 /**
- * One JSON-RPC message. A notification (no id) gets no answer: null.
- * `onCall` hears of every tool call, for the audit trail.
+ * The server, with its tools. `onCall` hears of every tool call, for the
+ * audit trail.
  */
-export async function handleRpc(message: unknown, version: string, onCall?: (called: Called, failed: boolean) => void): Promise<RpcResponse | null> {
-  if (!message || typeof message !== 'object' || (message as RpcRequest).jsonrpc !== '2.0' || typeof (message as RpcRequest).method !== 'string') {
-    return fail((message as RpcRequest | null)?.id ?? null, -32600, 'Invalid request');
-  }
-  const { id, method, params = {} } = message as RpcRequest;
-  const notification = id === undefined;
+export function createBrainServer(version: string, onCall?: (called: Called, failed: boolean) => void): McpServer {
+  const server = new McpServer({ name: 'second-brain', title: 'Second Brain', version }, { instructions: INSTRUCTIONS, capabilities: { tools: { listChanged: false } } });
 
-  switch (method) {
-    case 'initialize': {
-      const asked = typeof params.protocolVersion === 'string' ? params.protocolVersion : '';
-      return ok(id, {
-        protocolVersion: PROTOCOL_VERSIONS.includes(asked) ? asked : PROTOCOL_VERSIONS[0],
-        capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: 'second-brain', title: 'Second Brain', version },
-        instructions: INSTRUCTIONS,
-      });
+  const run = async (tool: string, body: (called: Called) => Promise<string>): Promise<Text> => {
+    const called: Called = { tool };
+    try {
+      const text = await body(called);
+      onCall?.(called, false);
+      return { content: [{ type: 'text', text }], isError: false };
+    } catch (err) {
+      onCall?.(called, true);
+      // What the model can act on is said; anything else stays in the server's log.
+      const known = err instanceof ToolError || err instanceof HttpError;
+      if (!known) console.error('[mcp]', tool, err);
+      return { content: [{ type: 'text', text: known ? err.message : 'That did not work on the server.' }], isError: true };
     }
-    case 'ping':
-      return notification ? null : ok(id, {});
-    case 'tools/list':
-      return ok(id, { tools: toolList() });
-    case 'tools/call': {
-      const name = typeof params.name === 'string' ? params.name : '';
-      const tool = TOOLS.find((t) => t.name === name);
-      if (!tool) return fail(id, -32602, `No tool called "${name}"`);
-      const args = params.arguments && typeof params.arguments === 'object' ? (params.arguments as Record<string, unknown>) : {};
-      const called: Called = { tool: name };
-      try {
-        const text = await tool.run(args, called);
-        onCall?.(called, false);
-        return ok(id, { content: [{ type: 'text', text }], isError: false });
-      } catch (err) {
-        onCall?.(called, true);
-        // What the model can act on is said; anything else stays in the server's log.
-        const said = err instanceof ToolError || err instanceof HttpError ? err.message : 'That did not work on the server.';
-        if (!(err instanceof ToolError || err instanceof HttpError)) console.error('[mcp]', name, err);
-        return ok(id, { content: [{ type: 'text', text: said }], isError: true });
-      }
-    }
-    default:
-      if (notification) return null; // notifications/initialized, notifications/cancelled and the like
-      return fail(id, -32601, `Method not found: ${method}`);
-  }
+  };
+
+  const reads = { readOnlyHint: true, openWorldHint: false } as const;
+
+  server.registerTool(
+    'list_brains',
+    { title: 'List brains', description: 'The brains (knowledge bases) there are, with what each is about and how many pages it has. Start here when you do not know which brain to use.', annotations: reads },
+    () =>
+      run('list_brains', async () => {
+        const brains = await listClusters();
+        if (brains.length === 0) return 'There are no brains yet.';
+        return brains.map((b) => `- ${b.name}: ${b.title}${b.scope ? `. ${b.scope}` : ''} (${b.pageCount} pages${b.updatedAt ? `, last changed ${b.updatedAt.slice(0, 10)}` : ''})`).join('\n');
+      }),
+  );
+
+  server.registerTool(
+    'search_brain',
+    {
+      title: 'Search a brain',
+      description: 'Search the pages of a brain by words. Returns page titles, their paths and the line around the match. Use read_page to read one. Search a few ways (names, synonyms) when the first search finds little.',
+      inputSchema: { brain: brainArg, query: z.string().min(1).max(200).describe('The words to look for.'), limit: z.number().int().min(1).max(30).optional().describe('At most this many pages (default 15).') },
+      annotations: reads,
+    },
+    ({ brain, query, limit }) =>
+      run('search_brain', async (called) => {
+        const name = await brainOf(brain, called);
+        const hits = await searchCluster(name, query.trim(), limit ?? 15);
+        if (hits.length === 0) return `Nothing in ${name} matches "${query}".`;
+        return hits.map((h) => `- ${h.title} (${h.slug})\n  ${h.snippet}`).join('\n');
+      }),
+  );
+
+  server.registerTool(
+    'read_page',
+    {
+      title: 'Read a page',
+      description: 'Read one page of a brain in full: its properties, its text, the pages it links to and the pages that link to it. Name it by its title or its path. "index" is the brain\'s table of contents.',
+      inputSchema: { brain: brainArg, page: z.string().min(1).max(300).describe('The page title (as in [[Title]]) or its path, e.g. "entities/warehouse-team" or "index".') },
+      annotations: reads,
+    },
+    ({ brain, page }) =>
+      run('read_page', async (called) => {
+        const name = await brainOf(brain, called);
+        const slug = await slugOf(name, page);
+        called.page = slug;
+        const [read, backlinks] = await Promise.all([readPage(name, slug), backlinksOf(name, slug)]);
+        const props = read.properties.length ? `${read.properties.map(([k, v]) => `${k}: ${v}`).join('\n')}\n\n` : '';
+        const linked = read.links.length ? `\n\nLinks to: ${[...new Set(read.links)].slice(0, 100).join(', ')}` : '';
+        const linking = backlinks.length ? `\nLinked from: ${backlinks.slice(0, 100).map((b) => b.title).join(', ')}` : '';
+        return `# ${read.title}\nPath: ${read.slug} · updated ${read.updatedAt.slice(0, 10)}\n\n${props}${clip(read.body.trim(), PAGE_MAX_CHARS)}${linked}${linking}`;
+      }),
+  );
+
+  server.registerTool(
+    'list_pages',
+    {
+      title: 'List pages',
+      description: 'The pages of a brain, folder by folder (titles and paths). Give a folder to list only that one.',
+      inputSchema: { brain: brainArg, folder: z.string().max(120).optional().describe('Only this folder, e.g. "entities".') },
+      annotations: reads,
+    },
+    ({ brain, folder }) =>
+      run('list_pages', async (called) => {
+        const name = await brainOf(brain, called);
+        const listing = await listPages(name);
+        const only = (folder ?? '').trim().replace(/\/$/, '');
+        const folders = listing.folders.filter((f) => !only || f.dir === only || f.dir.endsWith(`/${only}`));
+        if (only && folders.length === 0) throw new ToolError(`There is no folder "${only}". There are: ${listing.folders.map((f) => f.dir).join(', ')}.`);
+        const lines: string[] = [];
+        if (!only && listing.root.length) lines.push(`## (top)\n${listing.root.map((p) => `- ${p.title} (${p.slug})`).join('\n')}`);
+        for (const f of folders) lines.push(`## ${f.label} (${f.dir}), ${f.pages.length} pages\n${f.pages.map((p) => `- ${p.title} (${p.slug})`).join('\n')}`);
+        return clip(`${listing.total} pages in ${name}.\n\n${lines.join('\n\n')}`, PAGE_MAX_CHARS);
+      }),
+  );
+
+  server.registerTool(
+    'recent_changes',
+    {
+      title: 'Recent changes',
+      description: 'What was filed or changed in a brain lately, newest first, from its log: what came in and which pages it touched.',
+      inputSchema: { brain: brainArg, limit: z.number().int().min(1).max(50).optional().describe('At most this many entries (default 15).') },
+      annotations: reads,
+    },
+    ({ brain, limit }) =>
+      run('recent_changes', async (called) => {
+        const name = await brainOf(brain, called);
+        const entries = await readLog(name, limit ?? 15);
+        if (entries.length === 0) return `Nothing has been logged in ${name} yet.`;
+        return entries.map((e) => `- ${e.when} · ${e.action} · ${e.subject}${e.details.length ? `\n${e.details.slice(0, 8).map((d) => `  ${d}`).join('\n')}` : ''}`).join('\n');
+      }),
+  );
+
+  server.registerTool(
+    'file_document',
+    {
+      title: 'File a document into the brain',
+      description:
+        'Send a document to be filed into a brain: the full text of something the user pasted or attached (a contract, notes, a report, an email). The brain plans and files it itself, with its own rules, at once: it creates or updates the pages it concerns and links them. The same text sent twice is filed once. Every filing can be undone in the app. Only file what the user asked you to file. Afterwards, filing_status says what it changed.',
+      inputSchema: {
+        brain: brainArg,
+        title: z.string().min(1).max(200).describe('A short title for the document, e.g. "Q3 board pack" or "Call with the lender, 14 Oct".'),
+        text: z.string().min(1).max(1_000_000).describe('The whole text of the document, as it is. Not a summary.'),
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe('The date the document is from, YYYY-MM-DD, when known.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    ({ brain, title, text, date }) =>
+      run('file_document', async (called) => {
+        const name = await brainOf(brain, called);
+        const cleanTitle = title.replace(/\s+/g, ' ').trim();
+        const body = text.replace(/\r\n/g, '\n').trim();
+        if (!cleanTitle || !body) throw new ToolError('Give the document a title and its text.');
+        ensureIngestWorker();
+        const sent = await enqueue({ cluster: name, title: cleanTitle, text: body, sourceId: sourceIdFor(name, cleanTitle, body), kind: 'document', date: date ?? null });
+        called.page = sent.id;
+        if (sent.status === 'duplicate') return `This document was sent before (${sent.id}), so it is not filed again. filing_status with that id says what it did.`;
+        called.wrote = true;
+        return `Sent in to be filed into ${name} as ${sent.id}${sent.position && sent.position > 1 ? ` (${sent.position - 1} ahead of it)` : ''}. The brain plans and files it now; it usually takes a minute or two. Ask filing_status with this id to see what it changed.`;
+      }),
+  );
+
+  server.registerTool(
+    'filing_status',
+    {
+      title: 'Filing status',
+      description: 'What happened to documents sent in with file_document: waiting, being filed, filed (with the pages it created or updated) or failed. Give the id file_document returned, or leave it out for the latest few in a brain.',
+      inputSchema: { brain: brainArg, id: z.string().uuid().optional().describe('The id file_document returned.') },
+      annotations: reads,
+    },
+    ({ brain, id }) =>
+      run('filing_status', async (called) => {
+        if (id) {
+          const item = await readItem(id);
+          if (!item) throw new ToolError(`Nothing was sent in as ${id}.`);
+          called.brain = item.cluster;
+          return statusOf(item);
+        }
+        const name = await brainOf(brain, called);
+        const items = (await listItems(name)).sort((a, b) => b.receivedAt.localeCompare(a.receivedAt)).slice(0, STATUS_ITEMS);
+        if (items.length === 0) return `No documents have been sent in to ${name}.`;
+        return (await Promise.all(items.map(statusOf))).join('\n');
+      }),
+  );
+
+  return server;
 }

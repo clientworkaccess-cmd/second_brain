@@ -25,7 +25,8 @@ import { currentEpoch } from './sessions';
  * The store is one JSON file under .dashboard, written whole.
  */
 
-export const SCOPE = 'brain:read';
+/** Read the brain, and send documents in to be filed (never edit pages directly). */
+export const SCOPE = 'brain:read brain:file';
 export const ACCESS_TTL_S = 60 * 60;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const CODE_TTL_MS = 10 * 60 * 1000;
@@ -146,7 +147,7 @@ export function authorizationServerMetadata(origin: string) {
     grant_types_supported: ['authorization_code', 'refresh_token'],
     code_challenge_methods_supported: ['S256'],
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
-    scopes_supported: [SCOPE],
+    scopes_supported: SCOPE.split(' '),
   };
 }
 
@@ -154,7 +155,7 @@ export function protectedResourceMetadata(origin: string) {
   return {
     resource: `${origin}/mcp`,
     authorization_servers: [origin],
-    scopes_supported: [SCOPE],
+    scopes_supported: SCOPE.split(' '),
     bearer_methods_supported: ['header'],
     resource_name: 'Second Brain',
   };

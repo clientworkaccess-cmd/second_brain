@@ -48,7 +48,8 @@ export type AuditEvent =
   | 'mcp-refused'
   | 'mcp-connected'
   | 'mcp-disconnected'
-  | 'mcp-read';
+  | 'mcp-read'
+  | 'mcp-filed';
 
 export interface AuditEntry {
   at: string;

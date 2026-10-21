@@ -36,7 +36,8 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
             </p>
             <ul className="list-disc space-y-1 pl-5 text-body text-muted">
               <li>It can list your brains, search them and read their pages.</li>
-              <li>It cannot change, file or delete anything.</li>
+              <li>It can send documents in to be filed, as an upload does. Each filing can be undone.</li>
+              <li>It cannot edit or delete pages itself.</li>
               <li>You can end it any time on the Security page; signing out everywhere ends it too.</li>
             </ul>
             <p className="text-ui text-muted">

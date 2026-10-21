@@ -46,6 +46,7 @@
     "@lezer/common": "^1.5.3",
     "@lezer/highlight": "^1.2.5",
     "@lezer/markdown": "^1.7.2",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "@types/d3-force": "^3.0.10",
     "@types/d3-selection": "^3.0.12",
     "@types/d3-zoom": "^3.0.9",
@@ -66,7 +67,8 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.0",
-    "turndown": "^7.2.4"
+    "turndown": "^7.2.4",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
